@@ -17,7 +17,7 @@ type AddDeviceModalProps = {
   onDeviceAdded: (device: { id: string; name: string }) => void;
 };
 
-const ESP32_AP_IP = "192.168.4.1"; // Default IP when ESP32 is in AP mode
+const ESP32_AP_IP = "192.168.4.1"; // Default IP when ESP32 is in AP mode and
 
 const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   visible,
