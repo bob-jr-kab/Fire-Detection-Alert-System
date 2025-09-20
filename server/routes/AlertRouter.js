@@ -66,4 +66,35 @@ router.get("/", async (req, res) => {
   }
 });
 
+// new router
+// router.post("/forget-device/:deviceId", async (req, res) => {
+//   const { deviceId } = req.params;
+//   const { ipAddress } = req.body;
+
+//   if (!ipAddress) {
+//     return res.status(400).json({ message: "IP address is required." });
+//   }
+
+//   console.log(
+//     `Attempting to send forget command to device ${deviceId} at IP: ${ipAddress}`
+//   );
+
+//   try {
+//     // Send POST request directly to the ESP32's local IP address
+//     const response = await fetch(`http://${ipAddress}/api/forget-wifi`, {
+//       method: "POST",
+//     });
+//     if (response.ok) {
+//       res.status(200).json({ message: "Forget command sent successfully." });
+//     } else {
+//       res.status(500).json({ message: "Failed to send command to device." });
+//     }
+//   } catch (error) {
+//     console.error("Error sending forget command:", error);
+//     res
+//       .status(500)
+//       .json({ message: "Network error sending command to device." });
+//   }
+// });
+
 module.exports = router;

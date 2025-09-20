@@ -12,10 +12,11 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "firebase-admin": "^13.2.0",
     "http": "^0.0.1-security",
+    "mongodb": "^6.19.0",
     "mongoose": "^8.12.2",
     "nodemon": "^3.1.10",
     "socket.io": "^4.8.1",

@@ -16,7 +16,7 @@ const humidityIcon = require("../assets/images/Humidity.png");
 const temperatureIcon = require("../assets/images/Temperature.png");
 const flameIcon = require("../assets/images/flame.png");
 
-const SERVER_URL = "https://9b23e1ce033d.ngrok-free.app";
+const SERVER_URL = "https://15c0ed44a267.ngrok-free.app";
 
 type Device = {
   id: string;
@@ -30,6 +30,7 @@ type SensorData = {
   flameDetected: boolean;
   device_id: string; // Sensor data now includes device_id
   device_name?: string; // Optional: The friendly name might also come from ESP
+  ipAddress?: string;
 };
 
 type AllSensorData = {
@@ -57,9 +58,8 @@ export default function Home() {
           setDevices(parsedDevices);
         }
 
-        const storedSelectedDeviceId = await AsyncStorage.getItem(
-          "selectedDeviceId"
-        );
+        const storedSelectedDeviceId =
+          await AsyncStorage.getItem("selectedDeviceId");
 
         // If a stored ID exists, use it. Otherwise, if there are devices, select the first one.
         // Otherwise, leave as undefined.
@@ -260,6 +260,53 @@ export default function Home() {
     }
   };
 
+  const removeDevice = async (deviceIdToRemove: string) => {
+    try {
+      const currentDeviceData = allSensorData[deviceIdToRemove];
+      if (currentDeviceData?.ipAddress) {
+        // Send the forget command DIRECTLY to the ESP32's local IP
+        console.log(
+          `Sending forget command directly to device at IP: ${currentDeviceData.ipAddress}`
+        );
+        const response = await fetch(
+          `http://${currentDeviceData.ipAddress}/api/forget-wifi`,
+          {
+            method: "POST",
+          }
+        );
+        if (!response.ok) {
+          // This log will now show the actual network error or ESP32 response error
+          console.error(
+            "Failed to send forget command:",
+            await response.text()
+          );
+        } else {
+          console.log(
+            "Forget command sent successfully. ESP32 should now reboot to AP mode."
+          );
+        }
+      } else {
+        console.warn(
+          "No IP address found for selected device. Cannot send forget command."
+        );
+      }
+
+      // 2. Remove the device from the local state and AsyncStorage
+      const updatedDevices = devices.filter((d) => d.id !== deviceIdToRemove);
+      await saveDevices(updatedDevices);
+
+      // 3. Update the selected device
+      if (selectedDeviceId === deviceIdToRemove) {
+        const newSelectedId =
+          updatedDevices.length > 0 ? updatedDevices[0].id : undefined;
+        await saveSelectedDeviceId(newSelectedId);
+      }
+      console.log("Device removed from app's local storage.");
+    } catch (error) {
+      console.error("Error removing device:", error);
+    }
+  };
+
   const lastUpdated = new Date().toLocaleTimeString();
 
   return (
@@ -320,6 +367,12 @@ export default function Home() {
                 />
               ))}
             </Picker>
+            <TouchableOpacity
+              onPress={() => selectedDeviceId && removeDevice(selectedDeviceId)}
+              className="p-3 bg-red-500 rounded-r-lg"
+            >
+              <Feather name="trash-2" size={24} color="white" />
+            </TouchableOpacity>
           </View>
         ) : (
           <AppText className="text-center text-gray-500 mb-4">
@@ -351,7 +404,8 @@ export default function Home() {
               </Popover>
               <View className="flex-row gap-4 mt-3">
                 <AppText font="baumans" className="text-3xl text-customText">
-                  {currentSensorData
+                  {currentSensorData.temperature !== null &&
+                  currentSensorData.temperature !== undefined
                     ? `${currentSensorData.temperature.toFixed(1)} °C`
                     : "-- °C"}
                 </AppText>
@@ -380,7 +434,8 @@ export default function Home() {
               </Popover>
               <View className="flex-row gap-4 mt-3">
                 <AppText font="baumans" className="text-3xl text-customText">
-                  {currentSensorData
+                  {currentSensorData.humidity !== null &&
+                  currentSensorData.humidity !== undefined
                     ? `${currentSensorData.humidity.toFixed(1)}%`
                     : "-- %"}
                 </AppText>
