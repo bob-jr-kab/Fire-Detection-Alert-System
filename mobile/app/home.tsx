@@ -8,7 +8,8 @@ import { useEffect, useState } from "react";
 import { Image, ImageBackground, TouchableOpacity, View } from "react-native";
 import Popover from "react-native-popover-view";
 import { io } from "socket.io-client";
-
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 const logo = require("../assets/images/logo.png");
 const bgImg = require("../assets/images/bg-2.png");
 const smokeIcon = require("../assets/images/smoke.png");
@@ -16,8 +17,21 @@ const humidityIcon = require("../assets/images/Humidity.png");
 const temperatureIcon = require("../assets/images/Temperature.png");
 const flameIcon = require("../assets/images/flame.png");
 
-const SERVER_URL = "https://15c0ed44a267.ngrok-free.app";
+const SERVER_URL = "https://8f6857a7e06d.ngrok-free.app";
 
+// Foreground handler
+Notifications.setNotificationHandler({
+  // return full NotificationBehavior shape required by typings
+  handleNotification: async () => {
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true, // required on newer SDKs/typings
+      shouldShowList: true, // required on newer SDKs/typings
+    };
+  },
+});
 type Device = {
   id: string;
   name: string;
@@ -95,6 +109,34 @@ export default function Home() {
     }
   }, [devices, selectedDeviceId]); // Rerun if devices or selectedDeviceId changes
 
+  // Request permissions once
+  useEffect(() => {
+    // create Android channel for high-priority fire alerts (sound)
+    const setupNotifications = async () => {
+      try {
+        // Request permissions
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== "granted") {
+          console.warn("Push notifications permission denied!");
+        }
+
+        // Android: create a channel with high importance so sound/priority work
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("fire-alerts", {
+            name: "Fire Alerts",
+            importance: Notifications.AndroidImportance.HIGH,
+            sound: "default",
+            vibrationPattern: [0, 250, 250, 250],
+          });
+        }
+      } catch (e) {
+        console.warn("Error setting up notifications:", e);
+      }
+    };
+
+    setupNotifications();
+  }, []);
+
   // Effect to handle WebSocket connection and data updates
   useEffect(() => {
     const socket = io(SERVER_URL, { transports: ["websocket"] });
@@ -108,6 +150,19 @@ export default function Home() {
         ...prevData,
         [data.device_id]: data,
       }));
+
+      // 🔔 Trigger notification if flame detected
+      if (data.flameDetected) {
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: "🔥 Fire Alert!",
+            body: `Device ${data.device_name || data.device_id} detected a flame!`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null, // immediate
+        });
+      }
 
       // If this is a new device (not in current devices state) and no device is selected, automatically select it
       // This is helpful if the first device added is the one sending data
@@ -343,21 +398,30 @@ export default function Home() {
       </ImageBackground>
 
       {/* Main content */}
-      <View className="bg-white -mt-12 rounded-t-3xl border-2 border-gray-200 p-4 shadow-3xl h-5/6">
+      <View className="bg-white -mt-8 rounded-t-3xl border-2 border-gray-200 p-4 shadow-3xl h-5/6">
         <AppText className="text-sm bg-white text-left mb-2">
           Last Updated: {lastUpdated}
         </AppText>
 
         {/* Device Selector */}
         {devices.length > 0 ? (
-          <View className="mb-4 border rounded-lg border-gray-300 overflow-hidden">
+          <View
+            className="mb-4 border rounded-lg border-gray-300 overflow-hidden flex-row items-center"
+            style={{ height: 36 }} // Reduce overall height
+          >
             <Picker
-              selectedValue={selectedDeviceId} // This is now string | undefined
+              selectedValue={selectedDeviceId}
               onValueChange={(itemValue: string) =>
                 saveSelectedDeviceId(itemValue)
               }
-              style={{ height: 50, width: "100%", backgroundColor: "#f0f0f0" }}
-              itemStyle={{ fontSize: 16 }} // Adjust font size for items
+              style={{
+                width: "92%",
+                backgroundColor: "#f0f0f0",
+                fontSize: 12,
+                height: 50,
+                marginVertical: 0,
+                paddingVertical: 0,
+              }}
             >
               {devices.map((device) => (
                 <Picker.Item
@@ -369,9 +433,10 @@ export default function Home() {
             </Picker>
             <TouchableOpacity
               onPress={() => selectedDeviceId && removeDevice(selectedDeviceId)}
-              className="p-3 bg-red-500 rounded-r-lg"
+              className="bg-red-500 rounded justify-center items-center"
+              style={{ height: 50, width: 28 }} // Smaller button
             >
-              <Feather name="trash-2" size={24} color="white" />
+              <Feather name="trash-2" size={16} color="white" />{" "}
             </TouchableOpacity>
           </View>
         ) : (
@@ -508,7 +573,7 @@ export default function Home() {
             </View>
 
             {/* Alert Button */}
-            <View className="items-center mt-6">
+            <View className="items-center mt-2">
               <TouchableOpacity
                 onPress={handleAlert}
                 className="bg-customBg w-24 h-24 border-4 border-red-500 rounded-full justify-center items-center mb-4"

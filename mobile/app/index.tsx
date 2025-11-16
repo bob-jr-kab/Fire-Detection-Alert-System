@@ -2,6 +2,8 @@ import { useRouter } from "expo-router";
 import AppText from "@/components/ui/AppText";
 import { Image, ImageBackground, View, TouchableOpacity } from "react-native";
 import { StatusBar } from "react-native";
+import { useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const logo = require("../assets/images/logo.png");
 const bgImg = require("../assets/images/bg-2.png");
@@ -9,6 +11,26 @@ const fireImage = require("../assets/images/fireImage.png");
 
 export default function Index() {
   const router = useRouter();
+
+  useEffect(() => {
+    const checkFirstLaunch = async () => {
+      try {
+        const hasLaunched = await AsyncStorage.getItem("hasLaunched");
+        if (hasLaunched) {
+          // Not first launch → go to home
+          router.replace("/home");
+        } else {
+          // First launch → mark it
+          await AsyncStorage.setItem("hasLaunched", "true");
+          // You can show some welcome message or tutorial here
+        }
+      } catch (error) {
+        console.error("Error checking first launch:", error);
+        router.replace("/home"); // fallback
+      }
+    };
+    checkFirstLaunch();
+  }, []);
 
   return (
     <View className="h-full bg-white">
@@ -37,7 +59,7 @@ export default function Index() {
           {/* Login Button */}
           <TouchableOpacity
             className="bg-customBg p-4 rounded-xl mb-4 w-3/4"
-            onPress={() => router.push("/login")}
+            onPress={() => router.push("/home")}
           >
             <AppText className="text-white text-center font-semibold">
               Get Started

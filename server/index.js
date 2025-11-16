@@ -17,7 +17,7 @@ const io = initSocket(server);
 app.use(
   cors({
     origin: [
-      "https://15c0ed44a267.ngrok-free.app", // ✅ Allow full ngrok domain (HTTPS)
+      "https://8f6857a7e06d.ngrok-free.app", // ✅ Allow full ngrok domain (HTTPS)
       /\.ngrok\.io$/, // wildcard for fallback
       /localhost(:\d+)?$/,
       /192\.168\.\d+\.\d+(:\d+)?$/, // local IPs
