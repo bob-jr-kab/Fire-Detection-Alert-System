@@ -12,10 +12,15 @@ dependencies:
   cupertino_icons: ^1.0.6
   http: ^1.1.0
   shared_preferences: ^2.2.2
+  geolocator: ^14.0.2
+  socket_io_client: ^3.1.2
+  web_socket_channel: ^3.0.3
+  # flutter_local_notifications: ^16.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true

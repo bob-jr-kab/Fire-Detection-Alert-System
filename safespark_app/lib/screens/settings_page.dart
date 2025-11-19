@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -9,20 +10,26 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  String emergencyNumber = "199";
-  String name = "John";
-  String apartment = "FAYA APART";
-  String address = "Mimoza sk , Marmara 52";
+  // Stored Data
+  String emergencyNumber = "";
+  String name = "";
+  String apartment = "";
+  String address = "";
+  String district = "";
+
+  List<double>? locationCoords; // [longitude, latitude]
 
   bool saveLocation = false;
 
   bool editingEmergency = false;
   bool editingPersonal = false;
 
-  final TextEditingController emergencyController = TextEditingController();
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController apartmentController = TextEditingController();
-  final TextEditingController addressController = TextEditingController();
+  // Controllers
+  final emergencyController = TextEditingController();
+  final nameController = TextEditingController();
+  final apartmentController = TextEditingController();
+  final addressController = TextEditingController();
+  final districtController = TextEditingController();
 
   @override
   void initState() {
@@ -30,6 +37,9 @@ class _SettingsPageState extends State<SettingsPage> {
     loadData();
   }
 
+  // ---------------------------
+  // Load FROM SharedPreferences
+  // ---------------------------
   Future<void> loadData() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -38,10 +48,21 @@ class _SettingsPageState extends State<SettingsPage> {
       name = prefs.getString("name") ?? "John";
       apartment = prefs.getString("apartment") ?? "FAYA APART";
       address = prefs.getString("address") ?? "Mimoza sk , Marmara 52";
+      district = prefs.getString("district") ?? "";
       saveLocation = prefs.getBool("saveLocation") ?? false;
+
+      // Load coords
+      final lon = prefs.getDouble("longitude");
+      final lat = prefs.getDouble("latitude");
+      if (lon != null && lat != null) {
+        locationCoords = [lon, lat];
+      }
     });
   }
 
+  // ---------------------------
+  // Save TO SharedPreferences
+  // ---------------------------
   Future<void> saveData() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -49,7 +70,43 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.setString("name", name);
     await prefs.setString("apartment", apartment);
     await prefs.setString("address", address);
+    await prefs.setString("district", district);
+
     await prefs.setBool("saveLocation", saveLocation);
+
+    if (locationCoords != null) {
+      await prefs.setDouble("longitude", locationCoords![0]);
+      await prefs.setDouble("latitude", locationCoords![1]);
+    }
+  }
+
+  // ---------------------------
+  // Fetch Location
+  // ---------------------------
+  Future<void> getLocation() async {
+    bool perm = await Geolocator.isLocationServiceEnabled();
+    if (!perm) {
+      await Geolocator.openLocationSettings();
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.requestPermission();
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Location permission required")),
+      );
+      return;
+    }
+
+    final pos = await Geolocator.getCurrentPosition();
+
+    setState(() {
+      locationCoords = [pos.longitude, pos.latitude];
+    });
+
+    saveData();
   }
 
   @override
@@ -57,18 +114,13 @@ class _SettingsPageState extends State<SettingsPage> {
     return Stack(
       children: [
         // Background Gradient
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
+        Container(
           height: 220,
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF8C79E6), Color(0xFFD87CB9)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF8C79E6), Color(0xFFD87CB9)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
             ),
           ),
         ),
@@ -78,7 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
           body: SafeArea(
             child: Column(
               children: [
-                // Header
+                // HEADER
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -94,7 +146,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           color: Colors.white,
                         ),
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Image.asset("assets/images/logo.png", height: 48),
                       const SizedBox(width: 10),
                       const Text(
@@ -111,7 +163,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
                 const SizedBox(height: 20),
 
-                // White content panel (fill full remaining height)
+                // WHITE PANEL
                 Expanded(
                   child: Container(
                     width: double.infinity,
@@ -129,14 +181,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Emergency Number Section
+                          // EMERGENCY SECTION
                           _sectionTitle("Emergency Number", () {
                             setState(() {
                               editingEmergency = true;
                               emergencyController.text = emergencyNumber;
                             });
                           }),
+
                           const SizedBox(height: 10),
+
                           editingEmergency
                               ? Column(
                                   children: [
@@ -152,24 +206,28 @@ class _SettingsPageState extends State<SettingsPage> {
                                             .text
                                             .trim();
                                         editingEmergency = false;
-                                        saveData();
                                       });
+                                      saveData();
                                     }),
                                   ],
                                 )
                               : _infoRow("Emergency Number", emergencyNumber),
+
                           const SizedBox(height: 25),
 
-                          // Personal Details Section
+                          // PERSONAL DETAILS
                           _sectionTitle("Personal Details", () {
                             setState(() {
                               editingPersonal = true;
                               nameController.text = name;
                               apartmentController.text = apartment;
                               addressController.text = address;
+                              districtController.text = district;
                             });
                           }),
+
                           const SizedBox(height: 10),
+
                           editingPersonal
                               ? Column(
                                   children: [
@@ -187,6 +245,11 @@ class _SettingsPageState extends State<SettingsPage> {
                                       controller: addressController,
                                       decoration: _inputBox("Address"),
                                     ),
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      controller: districtController,
+                                      decoration: _inputBox("District"),
+                                    ),
                                     const SizedBox(height: 12),
                                     _saveButton(() {
                                       setState(() {
@@ -194,9 +257,11 @@ class _SettingsPageState extends State<SettingsPage> {
                                         apartment = apartmentController.text
                                             .trim();
                                         address = addressController.text.trim();
+                                        district = districtController.text
+                                            .trim();
                                         editingPersonal = false;
-                                        saveData();
                                       });
+                                      saveData();
                                     }),
                                   ],
                                 )
@@ -206,11 +271,13 @@ class _SettingsPageState extends State<SettingsPage> {
                                     _infoRow("Name", name),
                                     _infoRow("Apartment", apartment),
                                     _infoRow("Address", address),
+                                    _infoRow("District", district),
                                   ],
                                 ),
+
                           const SizedBox(height: 25),
 
-                          // Save Location Toggle
+                          // Location Toggle
                           Row(
                             children: [
                               Switch(
@@ -218,8 +285,10 @@ class _SettingsPageState extends State<SettingsPage> {
                                 onChanged: (val) {
                                   setState(() {
                                     saveLocation = val;
-                                    saveData();
                                   });
+                                  saveData();
+
+                                  if (val == true) getLocation();
                                 },
                               ),
                               const SizedBox(width: 8),
@@ -230,9 +299,17 @@ class _SettingsPageState extends State<SettingsPage> {
                             ],
                           ),
 
-                          const SizedBox(height: 35),
+                          if (locationCoords != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8.0),
+                              child: Text(
+                                "Longitude: ${locationCoords![0]}, Latitude: ${locationCoords![1]}",
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                            ),
 
-                          // Menu Items
+                          const SizedBox(height: 30),
+
                           _menuItem("User Manual"),
                           _menuItem("Terms and Conditions"),
                           _menuItem("Privacy Policy"),
@@ -249,9 +326,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // --------------------------
-  // WIDGET HELPERS
-  // --------------------------
+  // ----------------------------
+  // Helpers
+  // ----------------------------
   Widget _sectionTitle(String title, VoidCallback onEdit) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,

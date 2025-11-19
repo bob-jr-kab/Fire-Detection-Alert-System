@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Explicitly allow cleartext traffic to the ESP32's AP IP -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Must include the 'includeSubdomains' attribute for Lint compliance -->
+        <domain includeSubdomains="false">192.168.4.1</domain>
+    </domain-config>
+
+    <!-- Allow cleartext traffic for local/LAN IP ranges (Fixes: Missing includeSubdomains) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.1.0</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.4.0</domain>
+    </domain-config>
+
+    <!-- Fallback to allow HTTP completely (as specified by your original intent) -->
+    <base-config cleartextTrafficPermitted="true"/>
+</network-security-config>

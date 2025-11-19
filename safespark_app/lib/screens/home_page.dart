@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
-import '../models/sensor_data.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 import '../components/add_device_modal.dart';
+import '../screens/settings_page.dart';
+
+import '../services/socket_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -9,59 +15,569 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+// ⚠️ CHECK THIS URL: The ngrok URL must match your server's current tunnel address.
+const String _serverUrl = "https://9cd8a840fa87.ngrok-free.app";
+
 class _HomePageState extends State<HomePage> {
-  // ----------------------------
-  // DEVICE + SENSOR DATA
-  // ----------------------------
-  final List<Device> _devices = [
-    Device(id: 'D001', name: 'Living Room', roomName: ""),
-    Device(id: 'D002', name: 'Kitchen', roomName: ""),
-  ];
+  late SocketService socketService;
 
-  String? _selectedDeviceId = 'D001';
-
-  final Map<String, SensorData> _sensor = {
-    'D001': SensorData(
-      deviceId: 'D001',
-      temperature: 38.7,
-      humidity: 28.10,
-      smoke: 145,
-      flameDetected: false,
-      lastUpdated: DateTime.now(),
-      roomName: 'Living Room',
-    ),
-  };
+  // STATE variables
+  List<Device> _devices = [];
+  String? _selectedDeviceId;
+  final Map<String, SensorData> _allSensorData = {};
+  bool _showAddModal = false;
+  bool _isLoading = true;
 
   SensorData? get current =>
-      _selectedDeviceId != null ? _sensor[_selectedDeviceId] : null;
+      _selectedDeviceId != null ? _allSensorData[_selectedDeviceId] : null;
 
-  // ----------------------------
-  // MODAL VISIBILITY
-  // ----------------------------
-  bool showAddModal = false;
+  // Convenience alias and selector for external use in this state
+  SensorData? get currentSensorData => current;
 
-  void _openAddModal() {
-    setState(() => showAddModal = true);
-  }
-
-  void _closeAddModal() {
-    setState(() => showAddModal = false);
-  }
-
-  // Add device callback from modal
-  void _onDeviceAdded(Map<String, String> device) {
-    setState(() {
-      _devices.add(
-        Device(id: device['id']!, name: device['name']!, roomName: ""),
-      );
-    });
+  Device? get selectedDevice {
+    if (_selectedDeviceId == null) return null;
+    try {
+      return _devices.firstWhere((d) => d.id == _selectedDeviceId);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadDevicesAndSelection();
+    _setupSocket();
+  }
+
+  // --- PERSISTENCE LOGIC (unchanged) ---
+  Future<void> _loadDevicesAndSelection() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<Device> loadedDevices = [];
+    String? loadedSelectedId;
+
+    try {
+      final storedDevices = prefs.getString('devices');
+      if (storedDevices != null) {
+        final List<dynamic> list = jsonDecode(storedDevices);
+        loadedDevices = list.map((item) => Device.fromJson(item)).toList();
+      }
+      loadedSelectedId = prefs.getString('selectedDeviceId');
+
+      if (loadedSelectedId != null &&
+          !loadedDevices.any((d) => d.id == loadedSelectedId)) {
+        loadedSelectedId = null;
+      }
+      if (loadedSelectedId == null && loadedDevices.isNotEmpty) {
+        loadedSelectedId = loadedDevices.first.id;
+      }
+    } catch (e) {
+      print("Error loading data from SharedPreferences: $e");
+    }
+
+    setState(() {
+      _devices = loadedDevices;
+      _selectedDeviceId = loadedSelectedId;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _saveDevices(List<Device> updatedDevices) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('devices', jsonEncode(updatedDevices));
+    setState(() => _devices = updatedDevices);
+  }
+
+  Future<void> _saveSelectedDeviceId(String? deviceId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (deviceId != null) {
+      await prefs.setString('selectedDeviceId', deviceId);
+    } else {
+      await prefs.remove('selectedDeviceId');
+    }
+    setState(() => _selectedDeviceId = deviceId);
+  }
+
+  // --- WEBSOCKET & DATA HANDLING ---
+  void _setupSocket() {
+    // 💡 Instantiates the REAL SocketService from the imported file
+    socketService = SocketService();
+    socketService.onConnected = () => print("WebSocket Connected");
+    socketService.onDisconnected = () => print("WebSocket Disconnected");
+
+    socketService.onData = (data) {
+      if (!mounted) return;
+
+      final String deviceId = data['device_id'] as String;
+
+      final incoming = SensorData(
+        deviceId: deviceId,
+        temperature: (data['temperature'] as num?)?.toDouble() ?? 0.0,
+        humidity: (data['humidity'] as num?)?.toDouble() ?? 0.0,
+        smoke: (data['smokeLevel'] as num?)?.toDouble() ?? 0.0,
+        flameDetected: data['flameDetected'] as bool? ?? false,
+        lastUpdated: DateTime.now(),
+        // Lookup deviceName from current list, or use device_name from payload if it's new
+        deviceName: _devices
+            .firstWhere(
+              (d) => d.id == deviceId,
+              orElse: () => Device(
+                id: deviceId,
+                name: data['device_name'] as String? ?? 'Unknown Device',
+              ),
+            )
+            .name,
+        ipAddress: data['ipAddress'] as String?,
+      );
+
+      setState(() {
+        _allSensorData[deviceId] = incoming;
+      });
+
+      // RN Logic: If this is a new device sending data, auto-add/select it
+      if (!_devices.any((d) => d.id == deviceId)) {
+        final newDevice = Device(
+          id: deviceId,
+          name:
+              data['device_name'] as String? ??
+              'Device ${deviceId.substring(deviceId.length - 5)}',
+        );
+        _handleDeviceAdded(newDevice);
+      }
+    };
+
+    socketService.connect();
+  }
+
+  // --- DEVICE MANAGEMENT LOGIC (unchanged) ---
+
+  Future<void> _handleDeviceAdded(Device newDevice) async {
+    if (_devices.any((d) => d.id == newDevice.id)) return;
+
+    final updatedDevices = [..._devices, newDevice];
+    await _saveDevices(updatedDevices);
+
+    // Only set as selected if nothing is selected yet, or if this is the only device
+    if (_selectedDeviceId == null || _devices.isEmpty) {
+      await _saveSelectedDeviceId(newDevice.id);
+    }
+  }
+
+  void _onDeviceAdded(Map<String, String> device) {
+    _handleDeviceAdded(Device(id: device['id']!, name: device['name']!));
+  }
+
+  Future<void> _removeDevice(String deviceIdToRemove) async {
+    // ... (logic remains the same)
+    final deviceData = _allSensorData[deviceIdToRemove];
+    final ipAddress = deviceData?.ipAddress;
+
+    if (ipAddress != null) {
+      print('Sending forget command to device at IP: $ipAddress');
+      try {
+        await http.post(
+          Uri.parse('http://$ipAddress/api/forget-wifi'),
+          headers: {'Content-Type': 'application/json'},
+        );
+      } catch (e) {
+        print('Network error sending forget command: $e');
+      }
+    }
+
+    final updatedDevices = _devices
+        .where((d) => d.id != deviceIdToRemove)
+        .toList();
+    await _saveDevices(updatedDevices);
+    _allSensorData.remove(deviceIdToRemove);
+
+    if (_selectedDeviceId == deviceIdToRemove) {
+      final newSelectedId = updatedDevices.isNotEmpty
+          ? updatedDevices.first.id
+          : null;
+      await _saveSelectedDeviceId(newSelectedId);
+    }
+  }
+
+  // --- ALERT BUTTON LOGIC (unchanged) ---
+  Future<void> _handleAlert() async {
+    if (currentSensorData == null || _selectedDeviceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Sensor data or selected device is not available yet."),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // 1. Get user info from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final name = prefs.getString("name");
+      final apartment = prefs.getString("apartment");
+      final address = prefs.getString("address");
+      final district = prefs.getString("district");
+      final lon = prefs.getDouble("longitude");
+      final lat = prefs.getDouble("latitude");
+
+      // Parse location as array [longitude, latitude] - matches backend validation
+      List<double>? parsedLocation;
+      if (lon != null && lat != null) {
+        parsedLocation = [lon, lat];
+      }
+
+      // 2. Validate required fields for backend
+      if (parsedLocation == null || parsedLocation.length != 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Location data is required to send alert."),
+          ),
+        );
+        return;
+      }
+
+      final sensor = currentSensorData!;
+
+      // Build alert payload matching backend schema
+      final alertPayload = {
+        'location': parsedLocation, // Required: [longitude, latitude] array
+        'address': {
+          'apartment': apartment ?? "N/A",
+          'street': address ?? "N/A",
+          'district': district ?? "N/A",
+        },
+        'temperature': sensor.temperature, // Required
+        'smokeLevel': sensor.smoke
+            .toString(), // Convert to string to match schema
+        'device_id': _selectedDeviceId, // Required
+        'name': name ?? "Unknown User",
+        // Optional fields that might be useful
+        'humidity': sensor.humidity,
+        'flameDetected': sensor.flameDetected,
+        if (sensor.deviceName != null) 'device_name': sensor.deviceName,
+        if (sensor.ipAddress != null) 'ipAddress': sensor.ipAddress,
+      };
+
+      print('Sending alert payload: $alertPayload');
+
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/fire-alerts/confirm-alert'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true', // Add ngrok header
+        },
+        body: jsonEncode(alertPayload),
+      );
+
+      final result = jsonDecode(response.body);
+
+      if (response.statusCode == 201) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🔥 Alert confirmed and stored successfully!"),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "❌ Error: ${result['message'] ?? 'Could not send the alert.'}",
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      print("❌ Error sending alert: $error");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "❌ Network Error: Failed to send the alert. Please check your connection.",
+          ),
+        ),
+      );
+    }
+  }
+
+  void _openAddModal() {
+    setState(() => _showAddModal = true);
+  }
+
+  void _closeAddModal() {
+    setState(() => _showAddModal = false);
+  }
+
+  String _formatTime(DateTime dateTime) {
+    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
+  }
+
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Image.asset("assets/images/logo.png", height: 48),
+              const SizedBox(width: 10),
+              const Text(
+                "SafeSpark",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          // Settings/Menu button
+          GestureDetector(
+            onTap: () {
+              // 💡 ACTION: Navigate to SettingsPage
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
+            child: Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.settings, color: Colors.white, size: 22),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.devices_other, size: 80, color: Colors.grey.shade400),
+          const SizedBox(height: 15),
+          const Text(
+            "No Devices Added Yet",
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color.fromARGB(255, 125, 120, 147),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            "Connect your first sensor device to start monitoring.",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 30),
+          ElevatedButton.icon(
+            onPressed: _openAddModal,
+            icon: const Icon(Icons.add_circle_outline),
+            label: const Text("Add New Device"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color.fromARGB(255, 125, 120, 147),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _loadingIndicator() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 💡 Use a CircularProgressIndicator
+          CircularProgressIndicator(color: Theme.of(context).primaryColor),
+          const SizedBox(height: 20),
+          Text(
+            "Connecting to device and loading sensor data...",
+            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _deviceDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedDeviceId,
+          isExpanded: true,
+          icon: const Icon(Icons.arrow_drop_down),
+          hint: const Text("Select a Device"),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              _saveSelectedDeviceId(newValue);
+            }
+          },
+          items: _devices.map<DropdownMenuItem<String>>((Device device) {
+            return DropdownMenuItem<String>(
+              value: device.id,
+              child: Text(device.name, style: const TextStyle(fontSize: 16)),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // UPDATED: _sensorCard with info icon and popover functionality
+  Widget _sensorCard({
+    required String title,
+    required String value,
+    required String icon,
+    required String infoText, // Added info text parameter
+    bool highlight = false,
+    bool grey = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: grey
+            ? Colors.grey.shade100
+            : highlight
+            ? Colors.red.shade50
+            : Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: highlight
+            ? [
+                BoxShadow(
+                  color: Colors.red.shade100,
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.grey.shade200,
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+        border: Border.all(
+          color: highlight ? Colors.red.shade400 : Colors.grey.shade200,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Info icon positioned at top right
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Tooltip(
+              message: infoText,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              textStyle: const TextStyle(color: Colors.white, fontSize: 14),
+              child: GestureDetector(
+                onTap: () {
+                  // Alternative: Show a dialog if you prefer over tooltip
+                  _showInfoDialog(title, infoText);
+                },
+                child: Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+
+          // Main content
+          Row(
+            children: [
+              Image.asset(
+                icon,
+                height: 40,
+                width: 40,
+                color: highlight ? Colors.red.shade400 : null,
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: highlight ? Colors.red.shade600 : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Alternative method to show info in a dialog (more like React Native popover)
+  void _showInfoDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- WIDGET BUILD & DISPOSE (unchanged) ---
+
+  @override
   Widget build(BuildContext context) {
+    final bool hasDevice = _devices.isNotEmpty && _selectedDeviceId != null;
+    final String lastUpdatedTime = current != null
+        ? _formatTime(current!.lastUpdated)
+        : _formatTime(DateTime.now());
+
     return Stack(
       children: [
-        // BACKGROUND GRADIENT
+        // Background
         Positioned(
           top: 0,
           left: 0,
@@ -78,57 +594,16 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
 
-        // MAIN CONTENT
+        // Main Scaffold/Content
         Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(
             child: Column(
               children: [
-                // ---------------------------------------
-                // HEADER
-                // ---------------------------------------
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      Image.asset("assets/images/logo.png", height: 48),
-                      const SizedBox(width: 10),
-                      const Text(
-                        "SafeSpark",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-
-                      InkWell(
-                        onTap: () {
-                          Navigator.pushNamed(context, '/settings');
-                        },
-
-                        child: const Icon(
-                          Icons.settings,
-                          size: 26,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
+                _header(),
                 const SizedBox(height: 20),
-
-                // ---------------------------------------
-                // WHITE CONTENT PANEL
-                // ---------------------------------------
                 Expanded(
                   child: Container(
-                    width: double.infinity,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
                       vertical: 20,
@@ -139,147 +614,9 @@ class _HomePageState extends State<HomePage> {
                         top: Radius.circular(26),
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ---------------------------------------
-                        // LAST UPDATED + ADD BUTTON (NEW)
-                        // ---------------------------------------
-                        Row(
-                          children: [
-                            Text(
-                              "Last Updated: ${_formatTime(current!.lastUpdated)}",
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const Spacer(),
-
-                            // ADD BUTTON MOVED HERE
-                            GestureDetector(
-                              onTap: _openAddModal,
-                              child: Container(
-                                height: 40,
-                                width: 40,
-                                decoration: BoxDecoration(
-                                  color: Colors.black,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  Icons.add,
-                                  color: Colors.white,
-                                  size: 22,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        // ---------------------------------------
-                        // DROPDOWN + DELETE BUTTON
-                        // ---------------------------------------
-                        Row(
-                          children: [
-                            Expanded(child: _deviceDropdown()),
-                            const SizedBox(width: 10),
-
-                            // DELETE ICON
-                            GestureDetector(
-                              onTap: () {
-                                print("DELETE device logic goes here");
-                              },
-                              child: Container(
-                                height: 45,
-                                width: 45,
-                                decoration: BoxDecoration(
-                                  color: Colors.red.shade400,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  Icons.delete,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        // ---------------------------------------
-                        // SENSOR CARDS
-                        // ---------------------------------------
-                        _sensorCard(
-                          title: "Temperature",
-                          value: "${current!.temperature}°C",
-                          icon: "assets/images/Temperature.png",
-                          highlight: true,
-                        ),
-                        const SizedBox(height: 14),
-
-                        _sensorCard(
-                          title: "Humidity",
-                          value: "${current!.humidity} %",
-                          highlight: true,
-                          icon: "assets/images/humidity.png",
-                        ),
-                        const SizedBox(height: 14),
-
-                        _sensorCard(
-                          title: "Smoke",
-                          value: "${current!.smoke} ppm",
-                          icon: "assets/images/cigarrete.png",
-                          highlight: true,
-                        ),
-                        const SizedBox(height: 14),
-
-                        _sensorCard(
-                          title: "Flame",
-                          value: current!.flameDetected
-                              ? "Flame detected"
-                              : "No flame detected",
-                          icon: current!.flameDetected
-                              ? "assets/images/flame.png"
-                              : "assets/images/flame_gray.png", // use gray icon if no flame
-                          highlight:
-                              current!.flameDetected, // RED text if detected
-                          grey:
-                              !current!.flameDetected, // gray text if no flame
-                        ),
-
-                        const Spacer(),
-
-                        // ---------------------------------------
-                        // ALERT BUTTON
-                        // ---------------------------------------
-                        Center(
-                          child: Container(
-                            height: 95,
-                            width: 95,
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade400,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Center(
-                              child: Text(
-                                "Alert",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 20),
-                      ],
-                    ),
+                    child: hasDevice
+                        ? _mainContent(lastUpdatedTime)
+                        : _emptyState(),
                   ),
                 ),
               ],
@@ -287,11 +624,9 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
 
-        // ---------------------------------------
-        // ADD DEVICE MODAL OVERLAY
-        // ---------------------------------------
+        // 💡 ADD THE ADD DEVICE MODAL TO THE STACK
         AddDeviceModal(
-          visible: showAddModal,
+          visible: _showAddModal,
           onClose: _closeAddModal,
           onDeviceAdded: _onDeviceAdded,
         ),
@@ -299,91 +634,143 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ---------------------------------------
-  // DROPDOWN
-  // ---------------------------------------
-  Widget _deviceDropdown() {
-    return Container(
-      height: 45,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedDeviceId,
-          isExpanded: true,
-          items: _devices
-              .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name)))
-              .toList(),
-          onChanged: (val) => setState(() => _selectedDeviceId = val),
+  Widget _mainContent(String lastUpdatedTime) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Last updated + add button
+        Row(
+          children: [
+            Text(
+              "Last Updated: $lastUpdatedTime",
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+            const Spacer(),
+            GestureDetector(
+              onTap: _openAddModal, // Triggers modal visibility
+              child: Container(
+                height: 25,
+                width: 25,
+                decoration: BoxDecoration(
+                  color: const Color.fromARGB(255, 125, 120, 147),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 22),
+              ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  // ---------------------------------------
-  // SENSOR CARD
-  // ---------------------------------------
-  Widget _sensorCard({
-    required String title,
-    required String value,
-    required String icon,
-    bool highlight = false,
-    bool grey = false,
-  }) {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0EEEF),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15,
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            Expanded(child: _deviceDropdown()),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () {
+                if (_selectedDeviceId != null) {
+                  _removeDevice(_selectedDeviceId!);
+                }
+              },
+              child: Container(
+                height: 35,
+                width: 35,
+                decoration: BoxDecoration(
+                  color: Colors.red.shade400,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.delete, color: Colors.white, size: 22),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        if (_isLoading) // Show loading if data hasn't finished loading from prefs
+          Expanded(child: _loadingIndicator())
+        else if (current != null) ...[
+          // Show sensor cards when data is available
+          _sensorCard(
+            title: "Temperature",
+            value: "${current!.temperature.toStringAsFixed(1)}°C",
+            icon: "assets/images/Temperature.png",
+            infoText:
+                "Normal: 20-26°C. High temps > 40°C can indicate fire risk.",
+            highlight: current!.temperature > 40.0,
+          ),
+          const SizedBox(height: 14),
+          _sensorCard(
+            title: "Humidity",
+            value: "${current!.humidity.toStringAsFixed(1)} %",
+            icon: "assets/images/humidity.png",
+            infoText:
+                "Measures moisture in the air. Very low humidity can increase static electricity.",
+            highlight: false,
+          ),
+          const SizedBox(height: 14),
+          _sensorCard(
+            title: "Smoke",
+            value: "${current!.smoke.toStringAsFixed(0)} ppm",
+            icon: "assets/images/cigarrete.png",
+            infoText:
+                "Detects smoke particles (ppm). Levels above 800 ppm are considered dangerous.",
+            highlight: current!.smoke > 800,
+          ),
+          const SizedBox(height: 14),
+          _sensorCard(
+            title: "Flame",
+            value: current!.flameDetected
+                ? "Flame detected"
+                : "No flame detected",
+            icon: current!.flameDetected
+                ? "assets/images/flame.png"
+                : "assets/images/flame_gray.png",
+            infoText:
+                "This sensor looks for the infrared signature of a direct flame.",
+            highlight: current!.flameDetected,
+            grey: !current!.flameDetected,
+          ),
+        ] else
+          // Show a placeholder if no sensor data is received yet
+          const Expanded(
+            child: Center(
+              child: Text(
+                "Waiting for initial sensor data from the device...",
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        const Spacer(),
+        Center(
+          child: GestureDetector(
+            onTap: _handleAlert,
+            child: Container(
+              height: 95,
+              width: 95,
+              decoration: BoxDecoration(
+                color: Colors.red.shade400,
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Text(
+                  "Alert",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset(icon, height: 25),
-                    const SizedBox(width: 10),
-                    Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: highlight
-                            ? Colors.red
-                            : grey
-                            ? Colors.grey.shade600
-                            : Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 20),
+      ],
     );
   }
 
-  // ---------------------------------------
-  // TIME FORMATTER
-  // ---------------------------------------
-  String _formatTime(DateTime dt) {
-    return "${dt.hour}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
+  @override
+  void dispose() {
+    socketService.dispose();
+    super.dispose();
   }
 }
