@@ -1,0 +1,255 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include "DHT.h"
+
+// DHT Sensor configuration
+#define DHTPIN 27
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// MQ2 and KY-026 Sensor pins
+#define MQ2_AO 36 // Analog output for MQ2 smoke sensor
+#define MQ2_DO 33 // Digital output for MQ2 smoke sensor
+#define KY026_AO 39 // Analog output for KY-026 flame sensor (not used)
+#define KY026_DO 34 // Digital output for KY-026 flame sensor
+
+// Server Configuration
+const char* serverHost = "b6bbb2bb57ae.ngrok-free.app"; 
+const int serverPort = 443;
+const char* sensorDataEndpoint = "/api/sensor-data";
+
+// Wi-Fi and NVS preferences
+Preferences preferences;
+const char* NVS_NAMESPACE = "wifi_creds";
+const char* NVS_SSID_KEY = "ssid";
+const char* NVS_PASS_KEY = "password";
+const char* NVS_DEVICE_NAME_KEY = "device_name";
+
+// Web Server for AP mode configuration
+WebServer server(80);
+
+String wifiSsid;
+String wifiPassword;
+String deviceId;
+String deviceName;
+
+// Function to save Wi-Fi credentials and device name to NVS
+void saveCredentials() {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.putString(NVS_SSID_KEY, wifiSsid);
+  preferences.putString(NVS_PASS_KEY, wifiPassword);
+  preferences.putString(NVS_DEVICE_NAME_KEY, deviceName);
+  preferences.end();
+  Serial.println("Credentials saved to NVS.");
+}
+
+// Function to load Wi-Fi credentials and device name from NVS
+bool loadCredentials() {
+  preferences.begin(NVS_NAMESPACE, true);
+  wifiSsid = preferences.getString(NVS_SSID_KEY, "");
+  wifiPassword = preferences.getString(NVS_PASS_KEY, "");
+  deviceName = preferences.getString(NVS_DEVICE_NAME_KEY, "");
+  preferences.end();
+
+  if (wifiSsid.length() > 0) { // Only require SSID, password can be empty
+    Serial.println("Credentials loaded from NVS.");
+    Serial.print("SSID: "); Serial.println(wifiSsid);
+    Serial.print("Device Name: "); Serial.println(deviceName);
+    return true;
+  }
+  Serial.println("No credentials found in NVS.");
+  return false;
+}
+
+// Handler for the /config POST request in AP mode
+void handleConfig() {
+  if (server.method() == HTTP_POST) {
+    // Log all headers
+    Serial.println("Received headers:");
+    for (uint8_t i = 0; i < server.headers(); i++) {
+      Serial.printf("Header %s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+    }
+
+    // Log raw POST body
+    String body = server.arg("plain");
+    Serial.print("Raw POST body: ");
+    Serial.println(body);
+
+    // Log all form arguments
+    Serial.println("Form arguments:");
+    for (uint8_t i = 0; i < server.args(); i++) {
+      Serial.printf("Arg %s: %s\n", server.argName(i).c_str(), server.arg(i).c_str());
+    }
+
+    // Check for form data - password is now optional
+    if (server.hasArg("ssid") && server.hasArg("deviceName")) {
+      wifiSsid = server.arg("ssid");
+      deviceName = server.arg("deviceName");
+      
+      // Password is optional - if not provided, use empty string
+      wifiPassword = server.hasArg("password") ? server.arg("password") : "";
+
+      Serial.print("Received SSID: "); Serial.println(wifiSsid);
+      Serial.print("Received Password: "); 
+      if (wifiPassword.length() > 0) {
+        Serial.println("[password provided]");
+      } else {
+        Serial.println("[no password - open network]");
+      }
+      Serial.print("Received Device Name: "); Serial.println(deviceName);
+
+      saveCredentials();
+
+      StaticJsonDocument<128> responseDoc;
+      responseDoc["message"] = "Configuration received. Rebooting to connect to home WiFi.";
+      responseDoc["deviceId"] = deviceId;
+      responseDoc["deviceName"] = deviceName;
+
+      String responseJson;
+      serializeJson(responseDoc, responseJson);
+      server.send(200, "application/json", responseJson);
+
+      Serial.println("Config received. Rebooting...");
+      delay(1000);
+      ESP.restart();
+    } else {
+      Serial.println("Missing form data: ssid or deviceName");
+      server.send(400, "application/json", "{\"message\":\"Missing ssid or deviceName\"}");
+    }
+  } else {
+    server.send(405, "application/json", "{\"message\":\"Method Not Allowed\"}");
+  }
+}
+
+// Setup for AP mode and web server
+void setupAPMode() {
+  Serial.println("Starting in AP Mode...");
+  String apSSID = "SafeSpark_ESP_" + deviceId.substring(deviceId.length() - 5);
+  WiFi.softAP(apSSID.c_str());
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(myIP);
+  Serial.print("Connect to AP: ");
+  Serial.println(apSSID);
+  Serial.println("Access config at http://192.168.4.1/config (POST form data)");
+  server.on("/config", HTTP_POST, handleConfig);
+  server.onNotFound([]() {
+    server.send(404, "text/plain", "Not Found");
+  });
+}
+
+// Setup for STA mode (connecting to home Wi-Fi)
+void setupSTAMode() {
+  Serial.println("Starting in STA Mode...");
+  WiFi.mode(WIFI_STA);
+  
+  // Connect differently based on whether password is provided
+  if (wifiPassword.length() > 0) {
+    Serial.println("Connecting to secured network...");
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  } else {
+    Serial.println("Connecting to open network...");
+    WiFi.begin(wifiSsid.c_str());
+  }
+
+  Serial.print("Connecting to WiFi");
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 60) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    server.on("/api/forget-wifi", HTTP_POST, []() {
+      Serial.println("Received request to forget Wi-Fi credentials.");
+      preferences.begin(NVS_NAMESPACE, false);
+      preferences.clear();
+      preferences.end();
+      server.send(200, "application/json", "{\"message\":\"Credentials cleared. Rebooting to AP mode.\"}");
+      Serial.println("Credentials cleared. Rebooting...");
+      delay(1000);
+      ESP.restart();
+    });
+  } else {
+    Serial.println("\nFailed to connect to WiFi. Rebooting to AP mode...");
+    preferences.begin(NVS_NAMESPACE, false);
+    preferences.clear();
+    preferences.end();
+    delay(1000);
+    ESP.restart();
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  pinMode(MQ2_DO, INPUT);
+  pinMode(KY026_DO, INPUT);
+
+  // Initialize Wi-Fi to get MAC address
+  WiFi.mode(WIFI_AP_STA); // Temporarily enable both modes to get MAC
+  deviceId = WiFi.macAddress();
+  WiFi.mode(WIFI_OFF); // Turn off Wi-Fi until needed
+  Serial.print("ESP32 Device ID (MAC Address): "); Serial.println(deviceId);
+
+  if (loadCredentials()) {
+    setupSTAMode();
+  } else {
+    setupAPMode();
+  } 
+   server.begin();
+}
+
+void loop() {
+  server.handleClient(); // Always handle incoming client requests
+
+  static unsigned long lastSensorUpdate = 0;
+  const long updateInterval = 5000; // 5 seconds
+
+  // Check if it's time to send data
+  if (millis() - lastSensorUpdate >= updateInterval) {
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      String fullUrl = String("https://") + serverHost + sensorDataEndpoint;
+      http.begin(fullUrl.c_str());
+      http.addHeader("Content-Type", "application/json");
+
+      StaticJsonDocument<256> doc;
+      doc["temperature"] = dht.readTemperature();
+      doc["humidity"] = dht.readHumidity();
+      doc["smokeLevel"] = analogRead(MQ2_AO);
+      doc["flameDetected"] = (digitalRead(KY026_DO) == HIGH);
+      doc["device_id"] = deviceId;
+      doc["device_name"] = deviceName;
+      doc["ipAddress"] = WiFi.localIP().toString();
+
+      String jsonString;
+      serializeJson(doc, jsonString);
+
+      Serial.print("Sending data: ");
+      Serial.println(jsonString);
+      int httpResponseCode = http.POST(jsonString);
+
+      if (httpResponseCode > 0) {
+        Serial.print("HTTP Response code: ");
+        Serial.println(httpResponseCode);
+        Serial.println(http.getString());
+      } else {
+        Serial.print("Error on sending POST: ");
+        Serial.println(httpResponseCode);
+        Serial.print("Error details: ");
+        Serial.println(http.errorToString(httpResponseCode));
+      }
+      http.end();
+    }
+    lastSensorUpdate = millis(); // Reset the timer
+  }
+}
