@@ -2,9 +2,10 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // NOTE: Please replace this URL with the correct, current URL for your ngrok tunnel
-const String _socketUrl = "https://9cd8a840fa87.ngrok-free.app";
+final String _socketUrl = dotenv.env['API_URL'] ?? '';
 
 // --- SensorData and Device Models (Now consolidated here) ---
 
@@ -15,7 +16,7 @@ class SensorData {
   final double smoke;
   final bool flameDetected;
   final DateTime lastUpdated;
-  final String? deviceName; // Corrected to match the constructor property
+  final String? deviceName;
   final String? ipAddress;
 
   SensorData({

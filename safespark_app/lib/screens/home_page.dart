@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
 import '../components/add_device_modal.dart';
 import '../screens/settings_page.dart';
-
+import '../services/notification_service.dart';
 import '../services/socket_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,7 +16,7 @@ class HomePage extends StatefulWidget {
 }
 
 // ⚠️ CHECK THIS URL: The ngrok URL must match your server's current tunnel address.
-const String _serverUrl = "https://9cd8a840fa87.ngrok-free.app";
+final String _serverUrl = dotenv.env['API_URL'] ?? '';
 
 class _HomePageState extends State<HomePage> {
   late SocketService socketService;
@@ -46,6 +46,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    NotificationService.initialize(context);
     _loadDevicesAndSelection();
     _setupSocket();
   }
@@ -129,7 +130,14 @@ class _HomePageState extends State<HomePage> {
             .name,
         ipAddress: data['ipAddress'] as String?,
       );
-
+      if (incoming.flameDetected ||
+          incoming.smoke > 680 ||
+          incoming.temperature > 45) {
+        NotificationService.showFireNotification(
+          title: "🔥 Fire Detected",
+          body: "Immediate action required!",
+        );
+      }
       setState(() {
         _allSensorData[deviceId] = incoming;
       });
@@ -712,7 +720,7 @@ class _HomePageState extends State<HomePage> {
             icon: "assets/images/cigarrete.png",
             infoText:
                 "Detects smoke particles (ppm). Levels above 800 ppm are considered dangerous.",
-            highlight: current!.smoke > 800,
+            highlight: current!.smoke > 650,
           ),
           const SizedBox(height: 14),
           _sensorCard(

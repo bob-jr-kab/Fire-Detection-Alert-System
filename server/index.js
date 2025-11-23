@@ -17,7 +17,7 @@ const io = initSocket(server);
 app.use(
   cors({
     origin: [
-      "https://9cd8a840fa87.ngrok-free.app", // ✅ Allow full ngrok domain (HTTPS)
+      "https://rhkbbkgq-3000.euw.devtunnels.ms/", // ✅ Allow full ngrok domain (HTTPS)
       /\.ngrok\.io$/, // wildcard for fallback
       /localhost(:\d+)?$/,
       /192\.168\.\d+\.\d+(:\d+)?$/, // local IPs
@@ -49,5 +49,5 @@ app.use("/api/fire-alerts", fireAlertRoutes);
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`🌐 Accepting WebSocket connections via WSS from ngrok`);
+  console.log(`🌐 Accepting WebSocket connections via WSS`);
 });

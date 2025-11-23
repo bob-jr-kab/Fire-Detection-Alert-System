@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
-import 'screens/landing_page.dart';
+import 'screens/safesparkonboarding.dart';
 import 'screens/home_page.dart';
 import 'screens/settings_page.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'screens/fire_alert_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
+
   runApp(const MainApp());
 }
 
@@ -17,9 +22,10 @@ class MainApp extends StatelessWidget {
       title: 'SafeSpark',
       initialRoute: '/landing',
       routes: {
-        '/landing': (context) => const LandingPage(),
+        '/landing': (context) => const SafeSparkOnboarding(),
         '/home': (context) => const HomePage(),
         '/settings': (context) => const SettingsPage(),
+        '/fire-alert': (context) => const FireAlertScreen(),
       },
     );
   }
