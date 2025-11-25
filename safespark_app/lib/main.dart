@@ -17,7 +17,7 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    var materialApp = MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SafeSpark',
       initialRoute: '/landing',
@@ -25,8 +25,8 @@ class MainApp extends StatelessWidget {
         '/landing': (context) => const SafeSparkOnboarding(),
         '/home': (context) => const HomePage(),
         '/settings': (context) => const SettingsPage(),
-        '/fire-alert': (context) => const FireAlertScreen(),
       },
     );
+    return materialApp;
   }
 }

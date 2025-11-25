@@ -6,7 +6,8 @@ import '../components/add_device_modal.dart';
 import '../screens/settings_page.dart';
 import '../services/notification_service.dart';
 import '../services/socket_service.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../services/alert_service.dart';
+import '../screens/fire_alert_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -14,9 +15,6 @@ class HomePage extends StatefulWidget {
   @override
   State<HomePage> createState() => _HomePageState();
 }
-
-// ⚠️ CHECK THIS URL: The ngrok URL must match your server's current tunnel address.
-final String _serverUrl = dotenv.env['API_URL'] ?? '';
 
 class _HomePageState extends State<HomePage> {
   late SocketService socketService;
@@ -46,9 +44,18 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    NotificationService.initialize(context);
+    NotificationService.initialize(
+      context,
+      onNotificationTap: _handleNotificationTap,
+    );
     _loadDevicesAndSelection();
     _setupSocket();
+  }
+
+  void _handleNotificationTap(Alert alert) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => FireAlertScreen(alert: alert)),
+    );
   }
 
   // --- PERSISTENCE LOGIC (unchanged) ---
@@ -130,12 +137,21 @@ class _HomePageState extends State<HomePage> {
             .name,
         ipAddress: data['ipAddress'] as String?,
       );
+      // Create alert for critical conditions
       if (incoming.flameDetected ||
-          incoming.smoke > 680 ||
+          incoming.smoke > 1200 ||
           incoming.temperature > 45) {
+        final alert = Alert(
+          deviceId: deviceId,
+          deviceName: incoming.deviceName ?? 'Unknown Device',
+          data: incoming,
+          timestamp: DateTime.now(),
+        );
+
         NotificationService.showFireNotification(
           title: "🔥 Fire Detected",
-          body: "Immediate action required!",
+          body: "Immediate action required from ${incoming.deviceName}!",
+          alert: alert, // Pass the alert for future use
         );
       }
       setState(() {
@@ -207,100 +223,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   // --- ALERT BUTTON LOGIC (unchanged) ---
-  Future<void> _handleAlert() async {
-    if (currentSensorData == null || _selectedDeviceId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Sensor data or selected device is not available yet."),
-        ),
-      );
-      return;
-    }
-
-    try {
-      // 1. Get user info from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      final name = prefs.getString("name");
-      final apartment = prefs.getString("apartment");
-      final address = prefs.getString("address");
-      final district = prefs.getString("district");
-      final lon = prefs.getDouble("longitude");
-      final lat = prefs.getDouble("latitude");
-
-      // Parse location as array [longitude, latitude] - matches backend validation
-      List<double>? parsedLocation;
-      if (lon != null && lat != null) {
-        parsedLocation = [lon, lat];
-      }
-
-      // 2. Validate required fields for backend
-      if (parsedLocation == null || parsedLocation.length != 2) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Location data is required to send alert."),
-          ),
-        );
-        return;
-      }
-
-      final sensor = currentSensorData!;
-
-      // Build alert payload matching backend schema
-      final alertPayload = {
-        'location': parsedLocation, // Required: [longitude, latitude] array
-        'address': {
-          'apartment': apartment ?? "N/A",
-          'street': address ?? "N/A",
-          'district': district ?? "N/A",
-        },
-        'temperature': sensor.temperature, // Required
-        'smokeLevel': sensor.smoke
-            .toString(), // Convert to string to match schema
-        'device_id': _selectedDeviceId, // Required
-        'name': name ?? "Unknown User",
-        // Optional fields that might be useful
-        'humidity': sensor.humidity,
-        'flameDetected': sensor.flameDetected,
-        if (sensor.deviceName != null) 'device_name': sensor.deviceName,
-        if (sensor.ipAddress != null) 'ipAddress': sensor.ipAddress,
-      };
-
-      print('Sending alert payload: $alertPayload');
-
-      final response = await http.post(
-        Uri.parse('$_serverUrl/api/fire-alerts/confirm-alert'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true', // Add ngrok header
-        },
-        body: jsonEncode(alertPayload),
-      );
-
-      final result = jsonDecode(response.body);
-
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("🔥 Alert confirmed and stored successfully!"),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "❌ Error: ${result['message'] ?? 'Could not send the alert.'}",
-            ),
-          ),
-        );
-      }
-    } catch (error) {
-      print("❌ Error sending alert: $error");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "❌ Network Error: Failed to send the alert. Please check your connection.",
-          ),
-        ),
+  void _handleAlert() {
+    if (currentSensorData != null && _selectedDeviceId != null) {
+      AlertService().sendAlert(
+        context,
+        sensor: currentSensorData!,
+        deviceId: _selectedDeviceId!,
       );
     }
   }

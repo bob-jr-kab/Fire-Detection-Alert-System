@@ -18,7 +18,7 @@ function layout() {
         <Stack
           direction="row"
           flexWrap="wrap"
-          gap="2rem"
+          gap="1rem"
           marginTop="10px"
           paddingLeft={{ base: "1.4rem", md: "0px" }}
         >
@@ -30,7 +30,7 @@ function layout() {
         <Text fontFamily="cursive" fontSize="xl" fontWeight="bold">
           🕒 Alerts History
         </Text>
-        <Stack marginTop="10px" paddingLeft={{ base: "1.4rem", md: "0px" }}>
+        <Stack marginTop="10px" paddingLeft={{ base: "1.5rem", md: "0px" }}>
           <HistoryCard />
         </Stack>
       </Box>

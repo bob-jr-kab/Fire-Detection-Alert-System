@@ -8,6 +8,19 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 final String _socketUrl = dotenv.env['API_URL'] ?? '';
 
 // --- SensorData and Device Models (Now consolidated here) ---
+class Alert {
+  final String deviceId;
+  final String deviceName;
+  final SensorData data;
+  final DateTime timestamp;
+
+  const Alert({
+    required this.deviceId,
+    required this.deviceName,
+    required this.data,
+    required this.timestamp,
+  });
+}
 
 class SensorData {
   final String deviceId;
