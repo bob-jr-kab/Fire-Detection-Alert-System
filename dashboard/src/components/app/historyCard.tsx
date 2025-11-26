@@ -17,8 +17,11 @@ interface FireAlert {
     district: string;
   };
 }
+interface HistoryCardProps {
+  visibleCount: number;
+}
 
-const HistoryCard: React.FC = () => {
+const HistoryCard: React.FC<HistoryCardProps> = ({ visibleCount }) => {
   const [fireAlerts, setFireAlerts] = useState<FireAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -41,7 +44,7 @@ const HistoryCard: React.FC = () => {
         ? Array.from({ length: 3 }).map((_, index) => (
             <HistoryCardSkeleton key={`skeleton-${index}`} />
           ))
-        : fireAlerts.map((alert) => {
+        : fireAlerts.slice(0, visibleCount).map((alert) => {
             const { date } = formatMongoTimestamp(alert.timestamp);
             const relativeTime = formatRelativeTime(alert.timestamp);
             return (

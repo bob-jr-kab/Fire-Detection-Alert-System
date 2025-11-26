@@ -1,20 +1,27 @@
-import { Box, Stack, Text } from "@chakra-ui/react";
+import { Box, Stack, Text, Button, VStack } from "@chakra-ui/react";
 import AlertCard from "./components/app/alertCard";
 import HistoryCard from "./components/app/historyCard";
+import { useState } from "react";
+import { SimpleGrid } from "@chakra-ui/react";
 
-function layout() {
+function Layout() {
+  const [visibleCount, setVisibleCount] = useState(10); // show 10 at first
+
   return (
     <Box
       padding={{ base: "1rem 1rem 0 1rem", md: "1rem 5rem 0 5rem" }}
       width="100%"
       display={{ base: "block", md: "flex" }}
-      marginTop={"1rem"}
+      marginTop="1rem"
       justifyContent="space-between"
+      gap="2rem"
     >
-      <Box>
+      {/* LEFT — Incoming Alerts */}
+      <Box flex="1">
         <Text fontFamily="cursive" fontSize="xl" fontWeight="bold">
           Incoming alerts
         </Text>
+
         <Stack
           direction="row"
           flexWrap="wrap"
@@ -23,19 +30,39 @@ function layout() {
           paddingLeft={{ base: "1.4rem", md: "0px" }}
         >
           <AlertCard />
-          {/* <Modal /> */}
         </Stack>
       </Box>
-      <Box marginTop={{ base: "2rem", md: "0px" }}>
+
+      {/* RIGHT — Scrollable History */}
+      <Box flex="0.2">
         <Text fontFamily="cursive" fontSize="xl" fontWeight="bold">
           🕒 Alerts History
         </Text>
-        <Stack marginTop="10px" paddingLeft={{ base: "1.5rem", md: "0px" }}>
-          <HistoryCard />
-        </Stack>
+
+        {/* Scroll Container */}
+        <Box marginTop="10px" maxH="550px" overflowY="auto" paddingRight="5px">
+          <VStack
+            gap="1rem"
+            alignItems="start"
+            paddingLeft={{ base: "1.5rem", md: "0px" }}
+          >
+            <HistoryCard visibleCount={visibleCount} />
+          </VStack>
+        </Box>
+
+        {/* Load More Button */}
+        <Button
+          width="100%"
+          marginTop="10px"
+          variant="outline"
+          borderRadius="10px"
+          onClick={() => setVisibleCount((prev) => prev + 10)}
+        >
+          Load more...
+        </Button>
       </Box>
     </Box>
   );
 }
 
-export default layout;
+export default Layout;
