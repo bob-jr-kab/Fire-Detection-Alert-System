@@ -3,7 +3,6 @@ import 'screens/safesparkonboarding.dart';
 import 'screens/home_page.dart';
 import 'screens/settings_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'screens/fire_alert_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,7 +19,7 @@ class MainApp extends StatelessWidget {
     var materialApp = MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SafeSpark',
-      initialRoute: '/landing',
+      initialRoute: '/home',
       routes: {
         '/landing': (context) => const SafeSparkOnboarding(),
         '/home': (context) => const HomePage(),

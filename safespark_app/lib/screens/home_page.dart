@@ -25,7 +25,7 @@ class _HomePageState extends State<HomePage> {
   final Map<String, SensorData> _allSensorData = {};
   bool _showAddModal = false;
   bool _isLoading = true;
-
+  Alert? _currentCriticalAlert; // Store the current critical alert
   SensorData? get current =>
       _selectedDeviceId != null ? _allSensorData[_selectedDeviceId] : null;
 
@@ -53,8 +53,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _handleNotificationTap(Alert alert) {
+    // Use the stored current alert if available, otherwise use the passed one
+    final alertToUse = _currentCriticalAlert ?? alert;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => FireAlertScreen(alert: alert)),
+      MaterialPageRoute(
+        builder: (context) => FireAlertScreen(alert: alertToUse),
+      ),
     );
   }
 
@@ -139,7 +143,7 @@ class _HomePageState extends State<HomePage> {
       );
       // Create alert for critical conditions
       if (incoming.flameDetected ||
-          incoming.smoke > 1200 ||
+          incoming.smoke > 800 ||
           incoming.temperature > 45) {
         final alert = Alert(
           deviceId: deviceId,
@@ -648,7 +652,7 @@ class _HomePageState extends State<HomePage> {
             icon: "assets/images/cigarrete.png",
             infoText:
                 "Detects smoke particles (ppm). Levels above 800 ppm are considered dangerous.",
-            highlight: current!.smoke > 650,
+            highlight: current!.smoke > 800,
           ),
           const SizedBox(height: 14),
           _sensorCard(

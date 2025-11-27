@@ -27,7 +27,9 @@ const HistoryCard: React.FC<HistoryCardProps> = ({ visibleCount }) => {
 
   useEffect(() => {
     axios
-      .get<FireAlert[]>("http://localhost:3000/api/fire-alerts")
+      .get<FireAlert[]>(
+        "https://rhkbbkgq-3000.euw.devtunnels.ms/api/fire-alerts"
+      )
       .then((response) => {
         setFireAlerts(response.data);
         setIsLoading(false);
