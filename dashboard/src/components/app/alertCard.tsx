@@ -29,6 +29,7 @@ import AlertSkeleton from "../ui/AlertSkeleton.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Variants, Transition } from "framer-motion";
 import siren from "../../assets/siren.mp3";
+
 // Create motion components with proper typing
 const MotionBox = motion(Box);
 const MotionText = motion(Text);
@@ -39,13 +40,15 @@ function AlertCard() {
   const [fireAlerts, setFireAlerts] = useState<FireAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSirenMuted, setIsSirenMuted] = useState(false);
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
+    useState(false);
   const db = getFirestore(app);
   const { open, onOpen, onClose } = useDisclosure();
   const [selectedLocation, setSelectedLocation] = useState<[number, number]>([
     0, 0,
   ]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const prevCriticalIdsRef = useRef<Set<string>>(new Set());
+  const prevAlertIdsRef = useRef<Set<string>>(new Set());
   const firstRenderRef = useRef<boolean>(true);
 
   // Define Fire Alert Type
@@ -64,17 +67,83 @@ function AlertCard() {
     timestamp?: any;
   }
 
-  // Initialize audio
+  // Request browser notification permission
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) {
+      console.log("This browser does not support notifications");
+      return false;
+    }
+
+    if (Notification.permission === "granted") {
+      setBrowserNotificationsEnabled(true);
+      return true;
+    }
+
+    if (Notification.permission !== "denied") {
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        setBrowserNotificationsEnabled(true);
+        return true;
+      }
+    }
+
+    setBrowserNotificationsEnabled(false);
+    return false;
+  };
+
+  // Show browser notification (system-level notification)
+  const showBrowserNotification = (alert: FireAlert) => {
+    if (!browserNotificationsEnabled || !("Notification" in window)) return;
+
+    const title = "🔥 Fire Alert - SafeSpark";
+
+    let body = `Location: ${alert.address.apartment}, ${alert.address.street}\n`;
+    body += `Temperature: ${alert.temperature}°C | Smoke: ${alert.smokeLevel} ppm`;
+
+    if (alert.flameDetected) {
+      body += `\n🔥 FLAME DETECTED`;
+    }
+
+    const notification = new Notification(title, {
+      body: body,
+      icon: "/notification-icon.png", // Add this to your public folder
+      badge: "/notification-badge.png",
+      tag: alert.id, // Prevent duplicate notifications
+      requireInteraction: true, // Keep notification open until dismissed
+      silent: false,
+    });
+
+    // Handle notification click
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+      // Optional: scroll to the specific alert in the dashboard
+      const alertElement = document.getElementById(`alert-${alert.id}`);
+      if (alertElement) {
+        alertElement.scrollIntoView({ behavior: "smooth" });
+      }
+    };
+
+    // Auto-close after 10 seconds (safety fallback)
+    setTimeout(() => {
+      notification.close();
+    }, 10000);
+  };
+
+  // Initialize audio and notifications
   useEffect(() => {
     audioRef.current = new Audio(siren);
     audioRef.current.loop = true;
+
+    // Request notification permission on component mount
+    requestNotificationPermission();
 
     return () => {
       audioRef.current?.pause();
     };
   }, []);
 
-  // Play siren for critical alerts
+  // Play siren for ANY alert
   const playSiren = () => {
     audioRef.current?.play().catch((err) => {
       console.log("Autoplay blocked:", err);
@@ -84,19 +153,12 @@ function AlertCard() {
   // Stop siren
   const stopSiren = () => {
     audioRef.current?.pause();
-    // optional: rewind to start so next play begins from start
     if (audioRef.current) audioRef.current.currentTime = 0;
   };
 
   const handleViewMap = (location: [number, number]) => {
     setSelectedLocation(location);
     onOpen();
-  };
-
-  // Check if alert is critical
-  const isCriticalAlert = (alert: FireAlert): boolean => {
-    const smokeLevel = parseInt(alert.smokeLevel) || 0;
-    return alert.flameDetected || smokeLevel > 800 || alert.temperature > 45;
   };
 
   // Dynamic import for the map component
@@ -122,51 +184,58 @@ function AlertCard() {
     };
   }, []);
 
+  // Handle new alerts and trigger siren + notifications
   useEffect(() => {
-    const currentCriticalIds = new Set(
-      fireAlerts.filter(isCriticalAlert).map((a) => a.id)
-    );
+    const currentAlertIds = new Set(fireAlerts.map((a) => a.id));
 
-    // skip processing on initial render to avoid auto-unmuting on initial load
+    // Skip processing on initial render
     if (firstRenderRef.current) {
       firstRenderRef.current = false;
-      prevCriticalIdsRef.current = currentCriticalIds;
+      prevAlertIdsRef.current = currentAlertIds;
       return;
     }
 
-    // find newly added critical alert ids
-    const newCriticalIds = [...currentCriticalIds].filter(
-      (id) => !prevCriticalIdsRef.current.has(id)
+    // Find newly added alert ids
+    const newAlertIds = [...currentAlertIds].filter(
+      (id) => !prevAlertIdsRef.current.has(id)
     );
 
-    if (newCriticalIds.length > 0) {
-      // if currently muted, unmute and play
-      if (isSirenMuted) {
-        setIsSirenMuted(false);
-        playSiren();
-      } else {
-        // if already unmuted ensure siren plays
-        if (currentCriticalIds.size > 0) playSiren();
-      }
-    }
+    // Show notifications and trigger siren for new alerts
+    fireAlerts.forEach((alert) => {
+      if (newAlertIds.includes(alert.id)) {
+        console.log("🔥 New alert received:", alert.id);
 
-    prevCriticalIdsRef.current = currentCriticalIds;
-  }, [fireAlerts, isSirenMuted]);
+        // 🟢 Always unmute on new alert
+        setIsSirenMuted(false);
+
+        // Trigger siren immediately
+        playSiren();
+
+        // Trigger browser notification
+        showBrowserNotification(alert);
+      }
+    });
+
+    prevAlertIdsRef.current = currentAlertIds;
+  }, [fireAlerts]);
+
+  // Handle siren state based on alerts
   useEffect(() => {
-    const hasCriticalAlerts = fireAlerts.some(isCriticalAlert);
+    const hasAlerts = fireAlerts.length > 0;
 
     if (isSirenMuted) {
       stopSiren();
       return;
     }
 
-    if (hasCriticalAlerts) {
+    if (hasAlerts) {
       playSiren();
     } else {
       stopSiren();
     }
   }, [fireAlerts, isSirenMuted]);
-  // Fixed animation variants with proper typing
+
+  // Animation variants
   const cardVariants = {
     hidden: {
       opacity: 0,
@@ -192,7 +261,7 @@ function AlertCard() {
     },
   };
 
-  const criticalPulseVariants: Variants = {
+  const alertPulseVariants: Variants = {
     pulse: {
       backgroundColor: [
         "rgba(254, 226, 226, 0.1)",
@@ -249,52 +318,95 @@ function AlertCard() {
 
   return (
     <Box>
-      {/* Siren Controls */}
-      {fireAlerts.some(isCriticalAlert) && (
+      {/* Siren and Notification Controls - Show when ANY alerts exist */}
+      {fireAlerts.length > 0 && (
         <MotionBox
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg"
         >
-          <HStack justify="space-between">
-            <HStack>
-              <motion.div
-                animate={{
-                  rotate: [0, 360],
-                  scale: [1, 1.2, 1],
-                }}
-                transition={{
-                  duration: 1,
-                  repeat: Infinity,
-                  ease: "linear",
+          <VStack align="stretch" gap={3}>
+            <HStack justify="space-between">
+              <HStack>
+                <motion.div
+                  animate={{
+                    rotate: [0, 360],
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{
+                    duration: 1,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
+                >
+                  <Text fontSize="xl">🚨</Text>
+                </motion.div>
+                <Text fontWeight="bold" color="red.600">
+                  ACTIVE FIRE ALERTS - {fireAlerts.length} ALERT
+                  {fireAlerts.length !== 1 ? "S" : ""}
+                </Text>
+              </HStack>
+              <Button
+                size="sm"
+                colorScheme={isSirenMuted ? "gray" : "red"}
+                onClick={() => {
+                  const newMuted = !isSirenMuted;
+                  setIsSirenMuted(newMuted);
+                  if (newMuted) {
+                    stopSiren();
+                  } else {
+                    if (fireAlerts.length > 0) playSiren();
+                  }
                 }}
               >
-                <Text fontSize="xl">🚨</Text>
-              </motion.div>
-              <Text fontWeight="bold" color="red.600">
-                CRITICAL ALERT ACTIVE
-              </Text>
+                {isSirenMuted ? "🔇 Unmute Siren" : "🔊 Mute Siren"}
+              </Button>
             </HStack>
-            <Button
-              size="sm"
-              colorScheme={isSirenMuted ? "gray" : "red"}
-              onClick={() => {
-                // toggle mute state and ensure audio updates immediately
-                const newMuted = !isSirenMuted;
-                setIsSirenMuted(newMuted);
-                if (newMuted) {
-                  stopSiren();
-                } else {
-                  // only play if there are critical alerts
-                  if (fireAlerts.some(isCriticalAlert)) playSiren();
-                }
-              }}
-            >
-              {isSirenMuted ? "🔇 Unmute" : "🔊 Mute Siren"}
-            </Button>
-          </HStack>
+
+            {/* Notification Controls */}
+            <HStack justify="space-between" bg="white" p={2} borderRadius="md">
+              <Text fontSize="sm" fontWeight="medium">
+                Browser Notifications:
+              </Text>
+              <Button
+                size="sm"
+                colorScheme={browserNotificationsEnabled ? "green" : "gray"}
+                onClick={requestNotificationPermission}
+              >
+                {browserNotificationsEnabled ? "🔔 Enabled" : "🔕 Enable"}
+              </Button>
+            </HStack>
+          </VStack>
         </MotionBox>
       )}
+
+      {/* Notification Permission Prompt */}
+      {!browserNotificationsEnabled &&
+        Notification.permission === "default" && (
+          <MotionBox
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"
+          >
+            <HStack justify="space-between">
+              <VStack align="start" gap={1}>
+                <Text fontSize="sm" fontWeight="medium" color="blue.700">
+                  Enable browser notifications
+                </Text>
+                <Text fontSize="xs" color="blue.600">
+                  Get alerts even when browser is closed
+                </Text>
+              </VStack>
+              <Button
+                size="sm"
+                colorScheme="blue"
+                onClick={requestNotificationPermission}
+              >
+                Enable
+              </Button>
+            </HStack>
+          </MotionBox>
+        )}
 
       <AnimatePresence mode="popLayout">
         {isLoading
@@ -302,11 +414,13 @@ function AlertCard() {
               <AlertSkeleton key={`skeleton-${index}`} />
             ))
           : fireAlerts.map((alert, index) => {
-              const critical = isCriticalAlert(alert);
+              // All alerts are now considered "active" - no critical filtering
+              const hasAlert = true;
 
               return (
                 <MotionBox
                   key={alert.id}
+                  id={`alert-${alert.id}`}
                   variants={cardVariants}
                   initial="hidden"
                   animate="visible"
@@ -323,30 +437,29 @@ function AlertCard() {
                   <MotionBox
                     bg={{
                       _dark: "#4d4d4d",
-                      _light: critical ? "#fef2f2" : "#ffffff",
+                      _light: hasAlert ? "#fef2f2" : "#ffffff",
                     }}
                     color={{ _dark: "white/80", _light: "black/90" }}
                     width="300px"
                     height="210px"
                     padding="1rem"
-                    paddingTop={critical ? "1.5rem" : "0.5rem"}
+                    paddingTop={hasAlert ? "1.5rem" : "0.5rem"}
                     borderRadius="10px"
                     border={
-                      critical
+                      hasAlert
                         ? "2px solid #f87171"
                         : "1px solid rgb(255, 255, 255)"
                     }
                     boxShadow={
-                      critical ? "0 4px 20px rgba(239, 68, 68, 0.3)" : "lg"
+                      hasAlert ? "0 4px 20px rgba(239, 68, 68, 0.3)" : "lg"
                     }
                     position="relative"
                     overflow="hidden"
-                    // Use animate prop with proper typing
-                    animate={critical ? "pulse" : "visible"}
-                    variants={critical ? criticalPulseVariants : {}}
+                    animate={hasAlert ? "pulse" : "visible"}
+                    variants={hasAlert ? alertPulseVariants : {}}
                   >
-                    {/* Critical Alert Badge */}
-                    {critical && (
+                    {/* Alert Badge - Show for ALL alerts */}
+                    {hasAlert && (
                       <MotionBox
                         position="absolute"
                         top="0"
@@ -361,7 +474,7 @@ function AlertCard() {
                         variants={shakeVariants}
                         animate="shake"
                       >
-                        🚨 CRITICAL ALERT
+                        🚨 FIRE ALERT
                       </MotionBox>
                     )}
 
@@ -387,8 +500,8 @@ function AlertCard() {
                         <MotionText
                           fontSize="lg"
                           color={{ _light: "#cbc1db", _dark: "#cbc1db/20" }}
-                          variants={critical ? colorPulseVariants : {}}
-                          animate={critical ? "pulse" : "visible"}
+                          variants={hasAlert ? colorPulseVariants : {}}
+                          animate={hasAlert ? "pulse" : "visible"}
                         >
                           Fire Alert
                         </MotionText>
@@ -436,13 +549,13 @@ function AlertCard() {
                         <motion.div
                           variants={flameVariants}
                           animate={
-                            alert.temperature > 45 ? "flicker" : "visible"
+                            alert.temperature > 30 ? "flicker" : "visible"
                           }
                         >
                           <ThermometerSun
                             size={20}
                             color={
-                              alert.temperature > 45 ? "#ef4444" : "#161618"
+                              alert.temperature > 30 ? "#ef4444" : "#161618"
                             }
                           />
                         </motion.div>
@@ -451,7 +564,7 @@ function AlertCard() {
                           <Box
                             as="span"
                             px="1"
-                            color={alert.temperature > 45 ? "red.600" : "red"}
+                            color={alert.temperature > 30 ? "red.600" : "red"}
                           >
                             {alert.temperature}°C
                           </Box>
@@ -461,7 +574,7 @@ function AlertCard() {
                         <motion.div
                           variants={flameVariants}
                           animate={
-                            parseInt(alert.smokeLevel) > 800
+                            parseInt(alert.smokeLevel) > 100
                               ? "flicker"
                               : "visible"
                           }
@@ -474,7 +587,7 @@ function AlertCard() {
                             as="span"
                             px="1"
                             color={
-                              parseInt(alert.smokeLevel) > 800
+                              parseInt(alert.smokeLevel) > 100
                                 ? "red.600"
                                 : "red"
                             }
@@ -506,7 +619,7 @@ function AlertCard() {
                         height={25}
                         bg={{
                           _dark: "#3c3c3c",
-                          _light: critical ? "red.500" : "black/50",
+                          _light: hasAlert ? "red.500" : "black/50",
                         }}
                         color={{ _dark: "white/80", _light: "white" }}
                         width={74}
