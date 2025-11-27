@@ -2,7 +2,6 @@ import { Box, Stack, Text, Button, VStack } from "@chakra-ui/react";
 import AlertCard from "./components/app/alertCard";
 import HistoryCard from "./components/app/historyCard";
 import { useState } from "react";
-import { SimpleGrid } from "@chakra-ui/react";
 
 function Layout() {
   const [visibleCount, setVisibleCount] = useState(10); // show 10 at first
@@ -23,7 +22,6 @@ function Layout() {
         </Text>
 
         <Stack
-          direction="row"
           flexWrap="wrap"
           gap="1rem"
           marginTop="10px"

@@ -3,7 +3,7 @@ import Navbar from "./components/app/nav-bar";
 import Layout from "./layout";
 function App() {
   return (
-    <Box bg={{ _dark: "#212121", _light: "#ffffff" }} minHeight="100vh">
+    <Box bg={{ _dark: "#212121", _light: "#ffffff" }}>
       <Navbar />
       <Layout />
     </Box>

@@ -26,7 +26,7 @@ import { getFirestore, collection, onSnapshot } from "firebase/firestore";
 import app from "../../config/firebase.ts";
 import { useEffect, useState, lazy, Suspense, useRef } from "react";
 import AlertSkeleton from "../ui/AlertSkeleton.tsx";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, wrap } from "framer-motion";
 import type { Variants, Transition } from "framer-motion";
 import siren from "../../assets/siren.mp3";
 
@@ -364,7 +364,7 @@ function AlertCard() {
             </HStack>
 
             {/* Notification Controls */}
-            <HStack justify="space-between" bg="white" p={2} borderRadius="md">
+            <HStack justify="space-between" p={2} borderRadius="md">
               <Text fontSize="sm" fontWeight="medium">
                 Browser Notifications:
               </Text>
@@ -409,232 +409,287 @@ function AlertCard() {
         )}
 
       <AnimatePresence mode="popLayout">
-        {isLoading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <AlertSkeleton key={`skeleton-${index}`} />
-            ))
-          : fireAlerts.map((alert, index) => {
-              // All alerts are now considered "active" - no critical filtering
-              const hasAlert = true;
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, index) => (
+            <AlertSkeleton key={`skeleton-${index}`} />
+          ))
+        ) : (
+          <HStack gap={4} wrap="wrap" align="flex-start">
+            {fireAlerts
+              .sort((a, b) => {
+                // Handle null/undefined timestamps
+                if (!a.timestamp || !b.timestamp) return 0;
 
-              return (
-                <MotionBox
-                  key={alert.id}
-                  id={`alert-${alert.id}`}
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  layout
-                  custom={index}
-                  transition={{
-                    delay: index * 0.1,
-                    type: "spring",
-                    stiffness: 300,
-                  }}
-                  mb={4}
-                >
+                try {
+                  const dateA =
+                    typeof a.timestamp.toDate === "function"
+                      ? a.timestamp.toDate()
+                      : new Date(a.timestamp);
+
+                  const dateB =
+                    typeof b.timestamp.toDate === "function"
+                      ? b.timestamp.toDate()
+                      : new Date(b.timestamp);
+
+                  // Descending order (newest first)
+                  return dateB.getTime() - dateA.getTime();
+                } catch (e) {
+                  return 0;
+                }
+              })
+              .map((alert, index) => {
+                // All alerts are now considered "active" - no critical filtering
+                const hasAlert = true;
+
+                return (
                   <MotionBox
-                    bg={{
-                      _dark: "#4d4d4d",
-                      _light: hasAlert ? "#fef2f2" : "#ffffff",
+                    key={alert.id}
+                    id={`alert-${alert.id}`}
+                    variants={cardVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    layout
+                    custom={index}
+                    transition={{
+                      delay: index * 0.1,
+                      type: "spring",
+                      stiffness: 300,
                     }}
-                    color={{ _dark: "white/80", _light: "black/90" }}
-                    width="300px"
-                    height="210px"
-                    padding="1rem"
-                    paddingTop={hasAlert ? "1.5rem" : "0.5rem"}
-                    borderRadius="10px"
-                    border={
-                      hasAlert
-                        ? "2px solid #f87171"
-                        : "1px solid rgb(255, 255, 255)"
-                    }
-                    boxShadow={
-                      hasAlert ? "0 4px 20px rgba(239, 68, 68, 0.3)" : "lg"
-                    }
-                    position="relative"
-                    overflow="hidden"
-                    animate={hasAlert ? "pulse" : "visible"}
-                    variants={hasAlert ? alertPulseVariants : {}}
                   >
-                    {/* Alert Badge - Show for ALL alerts */}
-                    {hasAlert && (
-                      <MotionBox
-                        position="absolute"
-                        top="0"
-                        left="0"
-                        right="0"
-                        bg="red.500"
-                        color="white"
-                        textAlign="center"
-                        py={1}
-                        fontSize="xs"
-                        fontWeight="bold"
-                        variants={shakeVariants}
-                        animate="shake"
-                      >
-                        🚨 FIRE ALERT
-                      </MotionBox>
-                    )}
-
-                    <Box textAlign="right">
-                      <Text fontSize="md" fontWeight="medium">
-                        {alert.address.district}
-                      </Text>
-                    </Box>
-
-                    <HStack justifyContent="space-between" marginTop="-10px">
-                      <HStack marginTop="-10px">
-                        <Avatar.Root
-                          bg={{ _light: "#ececec", _dark: "#3c3c3c" }}
-                          size="md"
-                        >
-                          <Avatar.Image
-                            src="/notifications.png"
-                            height="25px"
-                            width="25px"
-                          />
-                        </Avatar.Root>
-
-                        <MotionText
-                          fontSize="lg"
-                          color={{ _light: "#cbc1db", _dark: "#cbc1db/20" }}
-                          variants={hasAlert ? colorPulseVariants : {}}
-                          animate={hasAlert ? "pulse" : "visible"}
-                        >
-                          Fire Alert
-                        </MotionText>
-                      </HStack>
-
-                      <HStack>
-                        <Link onClick={() => handleViewMap(alert.location)}>
-                          <Text
-                            fontSize="10px"
-                            color={{ _light: "#636ae8", _dark: "#141424" }}
-                          >
-                            View on map
-                          </Text>
-                          <SquareArrowOutUpRight size={11} color="#adc8cf" />
-                        </Link>
-                      </HStack>
-                    </HStack>
-
-                    <Separator marginTop="5px" />
-
-                    {/* Card contents */}
-                    <HStack
-                      alignItems="center"
-                      marginTop="15px"
-                      paddingLeft="30px"
+                    <MotionBox
+                      bg={{
+                        _dark: "#4d4d4d",
+                        _light: hasAlert ? "#fef2f2" : "#ffffff",
+                      }}
+                      color={{ _dark: "white/80", _light: "black/90" }}
+                      width="300px"
+                      height="210px"
+                      padding="1rem"
+                      paddingTop={hasAlert ? "1.5rem" : "0.5rem"}
+                      borderRadius="10px"
+                      border={
+                        hasAlert
+                          ? "2px solid #f87171"
+                          : "1px solid rgb(255, 255, 255)"
+                      }
+                      boxShadow={
+                        hasAlert ? "0 4px 20px rgba(239, 68, 68, 0.3)" : "lg"
+                      }
+                      position="relative"
+                      overflow="hidden"
+                      animate={hasAlert ? "pulse" : "visible"}
+                      variants={hasAlert ? alertPulseVariants : {}}
                     >
-                      <MapPinHouse
-                        size={35}
-                        opacity="45%"
-                        color="#161618"
-                        strokeWidth={2}
-                      />
-                      <VStack alignItems="start" marginLeft="10px" gap="0px">
-                        <Text textStyle="sm" fontWeight="semibold">
-                          {alert.address.apartment}
-                        </Text>
-                        <Text textStyle="sm" fontWeight="medium">
-                          {alert.address.street}
-                        </Text>
-                      </VStack>
-                    </HStack>
+                      {/* Alert Badge - Show for ALL alerts */}
+                      {hasAlert && (
+                        <MotionBox
+                          position="absolute"
+                          top="0"
+                          left="0"
+                          right="0"
+                          bg="red.500"
+                          color="white"
+                          textAlign="center"
+                          py={1}
+                          fontSize="xs"
+                          fontWeight="bold"
+                          variants={shakeVariants}
+                          animate="shake"
+                        >
+                          🚨 FIRE ALERT
+                        </MotionBox>
+                      )}
 
-                    <HStack marginTop="10px">
-                      <HStack>
-                        <motion.div
-                          variants={flameVariants}
-                          animate={
-                            alert.temperature > 30 ? "flicker" : "visible"
-                          }
-                        >
-                          <ThermometerSun
-                            size={20}
-                            color={
-                              alert.temperature > 30 ? "#ef4444" : "#161618"
-                            }
-                          />
-                        </motion.div>
-                        <Text textStyle="xs" fontWeight="semibold">
-                          Temp:
-                          <Box
-                            as="span"
-                            px="1"
-                            color={alert.temperature > 30 ? "red.600" : "red"}
-                          >
-                            {alert.temperature}°C
-                          </Box>
+                      <Box textAlign="right">
+                        <Text fontSize="md" fontWeight="medium">
+                          {alert.address.district}
                         </Text>
+                      </Box>
+
+                      <HStack justifyContent="space-between" marginTop="-10px">
+                        <HStack marginTop="-10px">
+                          <Avatar.Root
+                            bg={{ _light: "#ececec", _dark: "#3c3c3c" }}
+                            size="md"
+                          >
+                            <Avatar.Image
+                              src="/notifications.png"
+                              height="25px"
+                              width="25px"
+                            />
+                          </Avatar.Root>
+
+                          <MotionText
+                            fontSize="lg"
+                            color={{ _light: "#cbc1db", _dark: "#cbc1db/20" }}
+                            variants={hasAlert ? colorPulseVariants : {}}
+                            animate={hasAlert ? "pulse" : "visible"}
+                          >
+                            Fire Alert
+                          </MotionText>
+                        </HStack>
+
+                        <HStack>
+                          <Link onClick={() => handleViewMap(alert.location)}>
+                            <Text
+                              fontSize="10px"
+                              color={{ _light: "#636ae8", _dark: "#141424" }}
+                            >
+                              View on map
+                            </Text>
+                            <SquareArrowOutUpRight size={11} color="#adc8cf" />
+                          </Link>
+                        </HStack>
                       </HStack>
-                      <HStack>
-                        <motion.div
-                          variants={flameVariants}
-                          animate={
-                            parseInt(alert.smokeLevel) > 100
-                              ? "flicker"
-                              : "visible"
-                          }
-                        >
-                          {smokeIcon}
-                        </motion.div>
-                        <Text textStyle="xs" fontWeight="semibold">
-                          Smoke:{" "}
-                          <Box
-                            as="span"
-                            px="1"
-                            color={
+
+                      <Separator marginTop="5px" />
+
+                      {/* Card contents */}
+                      <HStack
+                        alignItems="center"
+                        marginTop="15px"
+                        paddingLeft="30px"
+                      >
+                        <MapPinHouse
+                          size={35}
+                          opacity="45%"
+                          color="#161618"
+                          strokeWidth={2}
+                        />
+                        <VStack alignItems="start" marginLeft="10px" gap="0px">
+                          <Text textStyle="sm" fontWeight="semibold">
+                            {alert.address.apartment}
+                          </Text>
+                          <Text textStyle="sm" fontWeight="medium">
+                            {alert.address.street}
+                          </Text>
+                        </VStack>
+                      </HStack>
+
+                      <HStack marginTop="10px">
+                        <HStack>
+                          <motion.div
+                            variants={flameVariants}
+                            animate={
+                              alert.temperature > 30 ? "flicker" : "visible"
+                            }
+                          >
+                            <ThermometerSun
+                              size={20}
+                              color={
+                                alert.temperature > 30 ? "#ef4444" : "#161618"
+                              }
+                            />
+                          </motion.div>
+                          <Text textStyle="xs" fontWeight="semibold">
+                            Temp:
+                            <Box
+                              as="span"
+                              px="1"
+                              color={alert.temperature > 30 ? "red.600" : "red"}
+                            >
+                              {alert.temperature}°C
+                            </Box>
+                          </Text>
+                        </HStack>
+                        <HStack>
+                          <motion.div
+                            variants={flameVariants}
+                            animate={
                               parseInt(alert.smokeLevel) > 100
-                                ? "red.600"
-                                : "red"
+                                ? "flicker"
+                                : "visible"
                             }
-                            borderRadius="md"
-                            fontWeight="bold"
                           >
-                            {alert.smokeLevel}
-                          </Box>
-                        </Text>
+                            {smokeIcon}
+                          </motion.div>
+                          <Text textStyle="xs" fontWeight="semibold">
+                            Smoke:{" "}
+                            <Box
+                              as="span"
+                              px="1"
+                              color={
+                                parseInt(alert.smokeLevel) > 100
+                                  ? "red.600"
+                                  : "red"
+                              }
+                              borderRadius="md"
+                              fontWeight="bold"
+                            >
+                              {alert.smokeLevel}
+                            </Box>
+                          </Text>
+                        </HStack>
                       </HStack>
-                    </HStack>
 
-                    {/* Flame Detected Indicator */}
-                    {alert.flameDetected && (
-                      <MotionBox
-                        initial={{ opacity: 0, scale: 0 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="mt-2 flex items-center justify-center"
-                        variants={flameVariants}
+                      {/* Flame Detected Indicator */}
+                      {alert.flameDetected && (
+                        <MotionBox
+                          initial={{ opacity: 0, scale: 0 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="mt-2 flex items-center justify-center"
+                          variants={flameVariants}
+                        >
+                          <Text fontSize="xs" fontWeight="bold" color="red.600">
+                            🔥 FLAME DETECTED
+                          </Text>
+                        </MotionBox>
+                      )}
+
+                      <Box
+                        display="flex"
+                        justifyContent="space-between"
+                        alignItems="center"
+                        paddingTop="10px"
                       >
-                        <Text fontSize="xs" fontWeight="bold" color="red.600">
-                          🔥 FLAME DETECTED
+                        <Text
+                          fontSize="xs"
+                          color="gray.500"
+                          fontWeight="medium"
+                        >
+                          {alert.timestamp
+                            ? (() => {
+                                try {
+                                  const date =
+                                    typeof alert.timestamp.toDate === "function"
+                                      ? alert.timestamp.toDate()
+                                      : new Date(alert.timestamp);
+                                  return !isNaN(date.getTime())
+                                    ? date.toLocaleTimeString("en-US", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        second: "2-digit",
+                                      })
+                                    : "Invalid time";
+                                } catch (e) {
+                                  return "Invalid time";
+                                }
+                              })()
+                            : "N/A"}
                         </Text>
-                      </MotionBox>
-                    )}
-
-                    <Box textAlign="right" paddingTop="10px">
-                      <MotionButton
-                        height={25}
-                        bg={{
-                          _dark: "#3c3c3c",
-                          _light: hasAlert ? "red.500" : "black/50",
-                        }}
-                        color={{ _dark: "white/80", _light: "white" }}
-                        width={74}
-                        borderRadius="15px"
-                        shadow={"xs"}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        Respond
-                      </MotionButton>
-                    </Box>
+                        <MotionButton
+                          height={25}
+                          bg={{
+                            _dark: "#3c3c3c",
+                            _light: hasAlert ? "red.500" : "black/50",
+                          }}
+                          color={{ _dark: "white/80", _light: "white" }}
+                          width={74}
+                          borderRadius="15px"
+                          shadow={"xs"}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          Respond
+                        </MotionButton>
+                      </Box>
+                    </MotionBox>
                   </MotionBox>
-                </MotionBox>
-              );
-            })}
+                );
+              })}
+          </HStack>
+        )}
       </AnimatePresence>
 
       {/* Modal */}
