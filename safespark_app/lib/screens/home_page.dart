@@ -28,7 +28,8 @@ class _HomePageState extends State<HomePage> {
   Alert? _currentCriticalAlert; // Store the current critical alert
   SensorData? get current =>
       _selectedDeviceId != null ? _allSensorData[_selectedDeviceId] : null;
-
+  double _alertScale = 1.0;
+  bool _isSendingAlert = false;
   // Convenience alias and selector for external use in this state
   SensorData? get currentSensorData => current;
 
@@ -38,6 +39,67 @@ class _HomePageState extends State<HomePage> {
       return _devices.firstWhere((d) => d.id == _selectedDeviceId);
     } catch (_) {
       return null;
+    }
+  }
+
+  void _onAlertTapDown(TapDownDetails details) {
+    setState(() => _alertScale = 0.95);
+  }
+
+  void _onAlertTapUp(TapUpDetails details) {
+    setState(() => _alertScale = 1.0);
+  }
+
+  void _onAlertTapCancel() {
+    setState(() => _alertScale = 1.0);
+  }
+
+  Future<void> _confirmAndSendAlert() async {
+    // restore scale
+    setState(() => _alertScale = 1.0);
+
+    // confirm dialog
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Confirm Alert'),
+            content: const Text(
+              'Are you sure you want to send an alert? This will notify emergency services.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Send'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    setState(() => _isSendingAlert = true);
+    // quick pulse animation
+    setState(() => _alertScale = 1.08);
+    await Future.delayed(const Duration(milliseconds: 150));
+    setState(() => _alertScale = 1.0);
+
+    try {
+      _handleAlert();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Alert sent')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to send alert: $e')));
+    } finally {
+      setState(() => _isSendingAlert = false);
     }
   }
 
@@ -152,8 +214,15 @@ class _HomePageState extends State<HomePage> {
           timestamp: DateTime.now(),
         );
 
+        // determine title: flame, smoke, or fire if both
+        final bool hasFlame = incoming.flameDetected;
+        final bool hasSmoke = incoming.smoke > 800;
+        final String title = (hasFlame && hasSmoke)
+            ? "Fire Detected"
+            : (hasFlame ? "Flame Detected" : "Smoke Detected");
+
         NotificationService.showFireNotification(
-          title: "🔥 Fire Detected",
+          title: title,
           body: "Immediate action required from ${incoming.deviceName}!",
           alert: alert, // Pass the alert for future use
         );
@@ -282,7 +351,7 @@ class _HomePageState extends State<HomePage> {
               height: 40,
               width: 40,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.settings, color: Colors.white, size: 22),
@@ -352,7 +421,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _deviceDropdown() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
@@ -666,7 +735,7 @@ class _HomePageState extends State<HomePage> {
             infoText:
                 "This sensor looks for the infrared signature of a direct flame.",
             highlight: current!.flameDetected,
-            grey: !current!.flameDetected,
+            grey: false,
           ),
         ] else
           // Show a placeholder if no sensor data is received yet
@@ -681,24 +750,37 @@ class _HomePageState extends State<HomePage> {
           ),
         const Spacer(),
         Center(
-          child: GestureDetector(
-            onTap: _handleAlert,
-            child: Container(
-              height: 95,
-              width: 95,
-              decoration: BoxDecoration(
-                color: Colors.red.shade400,
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text(
-                  "Alert",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+          child: AnimatedScale(
+            scale: _alertScale,
+            duration: const Duration(milliseconds: 120),
+            child: GestureDetector(
+              onTapDown: _isSendingAlert ? null : _onAlertTapDown,
+              onTapUp: _isSendingAlert ? null : _onAlertTapUp,
+              onTapCancel: _isSendingAlert ? null : _onAlertTapCancel,
+              onTap: _isSendingAlert ? null : _confirmAndSendAlert,
+              child: Container(
+                height: 95,
+                width: 95,
+                decoration: BoxDecoration(
+                  color: _isSendingAlert
+                      ? Colors.red.shade200
+                      : Colors.red.shade400,
+                  shape: BoxShape.circle,
                 ),
+                child: _isSendingAlert
+                    ? const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      )
+                    : const Center(
+                        child: Text(
+                          "Alert",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
               ),
             ),
           ),

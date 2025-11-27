@@ -66,13 +66,10 @@ class NotificationService {
         }
       },
     );
-
-    print("✅ Notification plugin initialized");
   }
 
   static void updateCurrentAlert(Alert alert) {
     _currentRealAlert = alert;
-    print("📱 Updated current alert with REAL data from: ${alert.deviceName}");
   }
 
   static Future<void> showFireNotification({
@@ -99,6 +96,5 @@ class NotificationService {
     );
 
     await _notifications.show(1, title, body, details);
-    print("🚨 Notification shown: $title");
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // --- 1. Data Model for Onboarding Steps ---
 class OnboardingStepData {
@@ -55,6 +56,16 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
     }
   }
 
+  // --- Mark first install as complete and navigate to home ---
+  Future<void> _completeOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isFirstInstall', false); // Mark as not first install
+
+    if (mounted) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    }
+  }
+
   // --- Reusable Button Widget ---
   Widget _buildNextButton(bool isLastStep) {
     return Container(
@@ -66,8 +77,8 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
         child: InkWell(
           onTap: () {
             if (isLastStep) {
-              // Navigate to the main application when the final button is pressed
-              Navigator.pushNamed(context, '/home');
+              // Complete onboarding and navigate to home
+              _completeOnboarding();
             } else {
               _nextPage();
             }
@@ -84,6 +95,27 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Skip Button ---
+  Widget _buildSkipButton() {
+    return Align(
+      alignment: Alignment.topRight,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: TextButton(
+          onPressed: _completeOnboarding,
+          child: const Text(
+            "Skip",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -121,9 +153,12 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
         child: SafeArea(
           child: Column(
             children: <Widget>[
+              // Skip button (only show if not on last page)
+              if (_currentPage < steps.length) _buildSkipButton(),
+
               // Header with Title and Indicators
               Padding(
-                padding: const EdgeInsets.only(top: 40, bottom: 20),
+                padding: const EdgeInsets.only(top: 20, bottom: 20),
                 child: Column(
                   children: [
                     const Text(
@@ -180,6 +215,12 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 }
 
@@ -274,19 +315,7 @@ class OnboardingEndPage extends StatelessWidget {
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // NOTE: Using a placeholder icon as 'assets/images/logo.png' is not available here.
-                Image.asset('assets/images/logo.png', height: 80),
-                // const Text(
-                //   'SafeSpark',
-                //   style: TextStyle(
-                //     color: Colors.white,
-                //     fontSize: 20,
-                //     fontWeight: FontWeight.bold,
-                //     letterSpacing: 1.2,
-                //   ),
-                // ),
-              ],
+              children: [Image.asset('assets/images/logo.png', height: 80)],
             ),
           ),
         ),
@@ -322,14 +351,6 @@ class OnboardingEndPage extends StatelessWidget {
                   // Top content (image + texts + NEW ATTRIBUTION)
                   Column(
                     children: [
-                      // NOTE: Using a placeholder icon as 'assets/images/representation.png' is not available here.
-                      // Image.asset(
-                      //   'assets/images/representation.png',
-
-                      //   height: 50,
-
-                      //   fit: BoxFit.contain,
-                      // ),
                       const SizedBox(height: 12),
                       const Text(
                         '24/7 Fire Monitoring Ready',
@@ -341,15 +362,15 @@ class OnboardingEndPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      // const Text(
-                      //   'Real-time monitoring and instant alerts\nto keep you and your family safe.',
-                      //   textAlign: TextAlign.center,
-                      //   style: TextStyle(
-                      //     fontSize: 14,
-                      //     color: Colors.grey,
-                      //     height: 1.5,
-                      //   ),
-                      // ),
+                      const Text(
+                        'Real-time monitoring and instant alerts to keep you and your family safe.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey,
+                          height: 1.5,
+                        ),
+                      ),
                       const SizedBox(height: 24),
                       // --- NEW: Project Attribution ---
                       const Text(
@@ -422,26 +443,3 @@ class OnboardingEndPage extends StatelessWidget {
     );
   }
 }
-// For testing purposes, we wrap the SafeSparkOnboarding with a MaterialApp if it is the entry point
-// void main() {
-//   runApp(const MyApp());
-// }
-
-// class MyApp extends StatelessWidget {
-//   const MyApp({super.key});
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return MaterialApp(
-//       title: 'SafeSpark Onboarding',
-//       theme: ThemeData(
-//         primarySwatch: Colors.blue,
-//       ),
-//       initialRoute: '/',
-//       routes: {
-//         '/': (context) => const SafeSparkOnboarding(),
-//         '/home': (context) => const Scaffold(body: Center(child: Text("Home Screen"))),
-//       },
-//     );
-//   }
-// }

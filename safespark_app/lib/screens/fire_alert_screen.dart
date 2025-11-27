@@ -84,7 +84,7 @@ class _FireAlertScreenState extends State<FireAlertScreen> {
           child: Container(
             constraints: const BoxConstraints(maxWidth: 400),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white38),
             ),

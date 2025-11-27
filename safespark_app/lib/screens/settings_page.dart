@@ -18,7 +18,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String district = "";
 
   List<double>? locationCoords; // [longitude, latitude]
-
   bool saveLocation = false;
 
   bool editingEmergency = false;
@@ -74,9 +73,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
     await prefs.setBool("saveLocation", saveLocation);
 
-    if (locationCoords != null) {
+    if (saveLocation && locationCoords != null) {
       await prefs.setDouble("longitude", locationCoords![0]);
       await prefs.setDouble("latitude", locationCoords![1]);
+    } else {
+      // Remove location data when toggle is off
+      await prefs.remove("longitude");
+      await prefs.remove("latitude");
+      setState(() {
+        locationCoords = null;
+      });
     }
   }
 
@@ -84,29 +90,92 @@ class _SettingsPageState extends State<SettingsPage> {
   // Fetch Location
   // ---------------------------
   Future<void> getLocation() async {
-    bool perm = await Geolocator.isLocationServiceEnabled();
-    if (!perm) {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.requestPermission();
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Location permission required")),
+        const SnackBar(content: Text("Please enable location services")),
       );
       return;
     }
 
-    final pos = await Geolocator.getCurrentPosition();
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Location permission denied")),
+        );
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Location permission permanently denied. Please enable in settings.",
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        locationCoords = [position.longitude, position.latitude];
+      });
+
+      await saveData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Location saved successfully")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to get location: $e")));
+    }
+  }
+
+  // ---------------------------
+  // Clear Location Data
+  // ---------------------------
+  Future<void> clearLocationData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove("longitude");
+    await prefs.remove("latitude");
 
     setState(() {
-      locationCoords = [pos.longitude, pos.latitude];
+      locationCoords = null;
     });
 
-    saveData();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Location data cleared")));
+  }
+
+  // ---------------------------
+  // Handle Location Toggle
+  // ---------------------------
+  Future<void> handleLocationToggle(bool value) async {
+    setState(() {
+      saveLocation = value;
+    });
+
+    if (value) {
+      // Toggle ON - get location
+      await getLocation();
+    } else {
+      // Toggle OFF - clear location data
+      await clearLocationData();
+    }
+
+    await saveData();
   }
 
   @override
@@ -130,32 +199,71 @@ class _SettingsPageState extends State<SettingsPage> {
           body: SafeArea(
             child: Column(
               children: [
-                // HEADER
+                // HEADER with Breadcrumb
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
                     vertical: 15,
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: const Icon(
-                          Icons.arrow_back,
-                          size: 26,
-                          color: Colors.white,
-                        ),
+                      // Breadcrumb
+                      Row(
+                        children: [
+                          InkWell(
+                            onTap: () => Navigator.pop(context),
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.arrow_back,
+                                  size: 20,
+                                  color: Colors.white,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  "Home",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 16,
+                            color: Colors.white70,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "Settings",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Image.asset("assets/images/logo.png", height: 48),
-                      const SizedBox(width: 10),
-                      const Text(
-                        "SafeSpark",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      const SizedBox(height: 12),
+
+                      // Main Header
+                      Row(
+                        children: [
+                          Image.asset("assets/images/logo.png", height: 48),
+                          const SizedBox(width: 12),
+                          const Text(
+                            "SafeSpark Settings",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -277,42 +385,180 @@ class _SettingsPageState extends State<SettingsPage> {
 
                           const SizedBox(height: 25),
 
-                          // Location Toggle
-                          Row(
-                            children: [
-                              Switch(
-                                value: saveLocation,
-                                onChanged: (val) {
-                                  setState(() {
-                                    saveLocation = val;
-                                  });
-                                  saveData();
+                          // LOCATION SECTION
+                          _sectionTitle("Location Settings", null),
 
-                                  if (val == true) getLocation();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                "Save Current Location",
-                                style: TextStyle(fontSize: 16),
-                              ),
-                            ],
-                          ),
+                          const SizedBox(height: 15),
 
-                          if (locationCoords != null)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8.0),
-                              child: Text(
-                                "Longitude: ${locationCoords![0]}, Latitude: ${locationCoords![1]}",
-                                style: const TextStyle(color: Colors.grey),
-                              ),
+                          // Location Toggle Card
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
                             ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      "Save Current Location",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: saveLocation,
+                                      onChanged: handleLocationToggle,
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 8),
+
+                                Text(
+                                  "Enable to automatically include your location in emergency alerts",
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 12),
+
+                                // Location Status
+                                if (saveLocation && locationCoords != null)
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: Colors.green.shade200,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green.shade600,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                "Location Saved",
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              Text(
+                                                "Coordinates: ••••••••, ••••••••",
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed: clearLocationData,
+                                          icon: Icon(
+                                            Icons.refresh,
+                                            color: Colors.grey.shade600,
+                                            size: 20,
+                                          ),
+                                          tooltip: "Refresh location",
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else if (saveLocation && locationCoords == null)
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: Colors.orange.shade200,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.location_searching,
+                                          color: Colors.orange.shade600,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Expanded(
+                                          child: Text(
+                                            "Fetching location... Tap refresh",
+                                            style: TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed: getLocation,
+                                          icon: Icon(
+                                            Icons.refresh,
+                                            color: Colors.orange.shade600,
+                                            size: 20,
+                                          ),
+                                          tooltip: "Get location",
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.location_off,
+                                          color: Colors.grey.shade600,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Expanded(
+                                          child: Text(
+                                            "Location saving disabled",
+                                            style: TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
 
                           const SizedBox(height: 30),
 
-                          _menuItem("User Manual"),
-                          _menuItem("Terms and Conditions"),
-                          _menuItem("Privacy Policy"),
+                          // OTHER SETTINGS
+                          _sectionTitle("Other Settings", null),
+                          const SizedBox(height: 10),
+                          _menuItem("User Manual", Icons.help_outline),
+                          _menuItem("Terms and Conditions", Icons.description),
+                          _menuItem("Privacy Policy", Icons.privacy_tip),
+
+                          const SizedBox(height: 20),
                         ],
                       ),
                     ),
@@ -329,23 +575,56 @@ class _SettingsPageState extends State<SettingsPage> {
   // ----------------------------
   // Helpers
   // ----------------------------
-  Widget _sectionTitle(String title, VoidCallback onEdit) {
+  Widget _sectionTitle(String title, VoidCallback? onEdit) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
         ),
-        IconButton(onPressed: onEdit, icon: const Icon(Icons.edit, size: 20)),
+        if (onEdit != null)
+          IconButton(
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit, size: 20, color: Colors.grey),
+          ),
       ],
     );
   }
 
   Widget _infoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text("$label : $value", style: const TextStyle(fontSize: 16)),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              "$label:",
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value.isNotEmpty ? value : "Not set",
+              style: TextStyle(
+                fontSize: 16,
+                color: value.isNotEmpty ? Colors.black87 : Colors.grey,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -353,11 +632,12 @@ class _SettingsPageState extends State<SettingsPage> {
     return InputDecoration(
       hintText: hint,
       filled: true,
-      fillColor: Colors.grey.shade200,
+      fillColor: Colors.grey.shade100,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide.none,
       ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     );
   }
 
@@ -368,19 +648,34 @@ class _SettingsPageState extends State<SettingsPage> {
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 14),
-          backgroundColor: Colors.black,
+          backgroundColor: const Color(0xFF8C79E6),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
-        child: const Text("Save"),
+        child: const Text(
+          "Save Changes",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }
 
-  Widget _menuItem(String title) {
+  Widget _menuItem(String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey.shade600, size: 22),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          const Spacer(),
+          Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 20),
+        ],
       ),
     );
   }

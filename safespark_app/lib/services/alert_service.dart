@@ -48,8 +48,6 @@ class AlertService {
         if (sensor.ipAddress != null) "ipAddress": sensor.ipAddress,
       };
 
-      print("Sending alert: $payload");
-
       final response = await http.post(
         Uri.parse("$_serverUrl/api/fire-alerts/confirm-alert"),
         headers: {

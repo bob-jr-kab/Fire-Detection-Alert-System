@@ -47,7 +47,7 @@ class _AddDeviceModalState extends State<AddDeviceModal> {
   static const Duration _connectTimeout = Duration(seconds: 5);
   static const Duration _retryDelay = Duration(seconds: 1);
 
-  static const String ESP_IP = "192.168.4.1";
+  static const String espIp = "192.168.4.1";
 
   void resetState() {
     setState(() {
@@ -83,7 +83,6 @@ class _AddDeviceModalState extends State<AddDeviceModal> {
     });
 
     // 1. Initial Delay (Crucial for allowing OS routing to stabilize)
-    print('Awaiting network stabilization (3s delay)...');
     await Future.delayed(_initialDelay);
 
     // Prepare form body - password is optional
@@ -109,7 +108,7 @@ class _AddDeviceModalState extends State<AddDeviceModal> {
       try {
         final response = await http
             .post(
-              Uri.parse("http://$ESP_IP/config"),
+              Uri.parse("http://$espIp/config"),
               headers: {"Content-Type": "application/x-www-form-urlencoded"},
               body: formBody,
             )
@@ -175,7 +174,7 @@ class _AddDeviceModalState extends State<AddDeviceModal> {
             onTap: () {}, // prevents closing on outside tap
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-              child: Container(color: Colors.black.withOpacity(0.4)),
+              child: Container(color: Colors.black.withValues(alpha: 0.4)),
             ),
           ),
         ),
