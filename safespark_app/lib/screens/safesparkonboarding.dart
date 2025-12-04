@@ -133,7 +133,7 @@ class _SafeSparkOnboardingState extends State<SafeSparkOnboarding> {
       decoration: BoxDecoration(
         color: _currentPage == index
             ? Colors.white
-            : Colors.white.withOpacity(0.5),
+            : Colors.white.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(4),
       ),
     );
@@ -266,7 +266,7 @@ class OnboardingPage extends StatelessWidget {
                     step.description,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 16,
                       height: 1.4,
                     ),
@@ -326,11 +326,11 @@ class OnboardingEndPage extends StatelessWidget {
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.7),
+              color: Colors.white.withValues(alpha: 0.7),
               borderRadius: const BorderRadius.all(Radius.circular(30)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   spreadRadius: 1,
                   blurRadius: 10,
                   offset: const Offset(0, -8),

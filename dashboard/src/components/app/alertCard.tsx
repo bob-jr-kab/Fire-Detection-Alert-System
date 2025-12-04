@@ -464,7 +464,7 @@ function AlertCard() {
                       }}
                       color={{ _dark: "white/80", _light: "black/90" }}
                       width="300px"
-                      height="210px"
+                      height="250px"
                       padding="1rem"
                       paddingTop={hasAlert ? "1.5rem" : "0.5rem"}
                       borderRadius="10px"

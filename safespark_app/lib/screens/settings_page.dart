@@ -44,9 +44,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() {
       emergencyNumber = prefs.getString("emergencyNumber") ?? "199";
-      name = prefs.getString("name") ?? "John";
-      apartment = prefs.getString("apartment") ?? "FAYA APART";
-      address = prefs.getString("address") ?? "Mimoza sk , Marmara 52";
+      name = prefs.getString("name") ?? "";
+      apartment = prefs.getString("apartment") ?? "";
+      address = prefs.getString("address") ?? "";
       district = prefs.getString("district") ?? "";
       saveLocation = prefs.getBool("saveLocation") ?? false;
 
@@ -216,55 +216,34 @@ class _SettingsPageState extends State<SettingsPage> {
                             child: const Row(
                               children: [
                                 Icon(
-                                  Icons.arrow_back,
+                                  Icons.arrow_back_ios_new,
                                   size: 20,
                                   color: Colors.white,
                                 ),
                                 SizedBox(width: 8),
-                                Text(
-                                  "Home",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
-                                ),
                               ],
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(
-                            Icons.chevron_right,
-                            size: 16,
-                            color: Colors.white70,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            "Settings",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                          Row(
+                            children: [
+                              Image.asset("assets/images/logo.png", height: 48),
+                              const SizedBox(width: 12),
+                              const Text(
+                                "SafeSpark ",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
 
                       // Main Header
-                      Row(
-                        children: [
-                          Image.asset("assets/images/logo.png", height: 48),
-                          const SizedBox(width: 12),
-                          const Text(
-                            "SafeSpark Settings",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),

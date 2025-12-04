@@ -116,19 +116,24 @@ class _AddDeviceModalState extends State<AddDeviceModal> {
 
         if (response.statusCode == 200) {
           final result = jsonDecode(response.body);
+
           if (result["deviceId"] != null) {
+            final String deviceId = result["deviceId"];
+            final String pairingToken =
+                result["pairingToken"] ?? ""; // handle missing
+
             widget.onDeviceAdded({
-              "id": result["deviceId"],
+              "id": deviceId,
               "name": deviceName.text.trim(),
+              "pairingToken": pairingToken,
             });
+
             success = true;
             setState(() => step = 3);
-            break; // Success! Exit the loop.
-          } else {
-            // Server responded 200 but missing data (ESP32 logic error)
-            finalErrorMessage =
-                "Device successfully received credentials but did not return a valid Device ID. Check ESP32 logic.";
+
             break;
+          } else {
+            finalErrorMessage = "Device responded but no deviceId returned.";
           }
         } else {
           // Server responded with an error HTTP status code

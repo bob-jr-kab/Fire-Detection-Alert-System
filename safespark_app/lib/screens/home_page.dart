@@ -25,6 +25,7 @@ class _HomePageState extends State<HomePage> {
   final Map<String, SensorData> _allSensorData = {};
   bool _showAddModal = false;
   bool _isLoading = true;
+
   Alert? _currentCriticalAlert; // Store the current critical alert
   SensorData? get current =>
       _selectedDeviceId != null ? _allSensorData[_selectedDeviceId] : null;
@@ -174,7 +175,6 @@ class _HomePageState extends State<HomePage> {
 
   // --- WEBSOCKET & DATA HANDLING ---
   void _setupSocket() {
-    // 💡 Instantiates the REAL SocketService from the imported file
     socketService = SocketService();
     socketService.onConnected = () => print("WebSocket Connected");
     socketService.onDisconnected = () => print("WebSocket Disconnected");
@@ -183,7 +183,23 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
 
       final String deviceId = data['device_id'] as String;
+      final String? incomingToken = data['pairingToken'] as String?;
 
+      // Find if we already own this device
+      final Device? ownedDevice = _devices.cast<Device?>().firstWhere(
+        (d) => d?.id == deviceId,
+        orElse: () => null,
+      );
+
+      // SECURITY CHECK: Only accept data from devices we own AND token matches
+      if (ownedDevice == null ||
+          ownedDevice.pairingToken == null ||
+          ownedDevice.pairingToken != incomingToken) {
+        print("Ignoring unowned or token-mismatched device: $deviceId");
+        return; // Critical: ignore completely
+      }
+
+      // SUCCESS: This is OUR device → safe to process
       final incoming = SensorData(
         deviceId: deviceId,
         temperature: (data['temperature'] as num?)?.toDouble() ?? 0.0,
@@ -191,55 +207,45 @@ class _HomePageState extends State<HomePage> {
         smoke: (data['smokeLevel'] as num?)?.toDouble() ?? 0.0,
         flameDetected: data['flameDetected'] as bool? ?? false,
         lastUpdated: DateTime.now(),
-        // Lookup deviceName from current list, or use device_name from payload if it's new
-        deviceName: _devices
-            .firstWhere(
-              (d) => d.id == deviceId,
-              orElse: () => Device(
-                id: deviceId,
-                name: data['device_name'] as String? ?? 'Unknown Device',
-              ),
-            )
-            .name,
+        deviceName: ownedDevice.name, // Use saved name (most reliable)
         ipAddress: data['ipAddress'] as String?,
       );
-      // Create alert for critical conditions
+
+      // Critical alert detection
       if (incoming.flameDetected ||
           incoming.smoke > 800 ||
           incoming.temperature > 45) {
         final alert = Alert(
           deviceId: deviceId,
-          deviceName: incoming.deviceName ?? 'Unknown Device',
+          deviceName: incoming.deviceName ?? ownedDevice.name,
           data: incoming,
           timestamp: DateTime.now(),
         );
 
-        // determine title: flame, smoke, or fire if both
-        final bool hasFlame = incoming.flameDetected;
-        final bool hasSmoke = incoming.smoke > 800;
-        final String title = (hasFlame && hasSmoke)
+        final String title = incoming.flameDetected && incoming.smoke > 800
             ? "Fire Detected"
-            : (hasFlame ? "Flame Detected" : "Smoke Detected");
+            : incoming.flameDetected
+            ? "Flame Detected"
+            : "Smoke Detected";
 
         NotificationService.showFireNotification(
           title: title,
           body: "Immediate action required from ${incoming.deviceName}!",
-          alert: alert, // Pass the alert for future use
+          alert: alert,
         );
+
+        // Optional: Store as current critical alert
+        _currentCriticalAlert = alert;
       }
+
+      // Update UI with fresh sensor data
       setState(() {
         _allSensorData[deviceId] = incoming;
       });
 
-      // RN Logic: If this is a new device sending data, auto-add/select it
-      if (!_devices.any((d) => d.id == deviceId)) {
-        final newDevice = Device(
-          id: deviceId,
-          name:
-              data['device_name'] as String? ??
-              'Device ${deviceId.substring(deviceId.length - 5)}',
-        );
-        _handleDeviceAdded(newDevice);
+      // Optional: Auto-select this device if nothing is selected
+      if (_selectedDeviceId == null || _selectedDeviceId!.isEmpty) {
+        _saveSelectedDeviceId(deviceId);
       }
     };
 
@@ -261,7 +267,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onDeviceAdded(Map<String, String> device) {
-    _handleDeviceAdded(Device(id: device['id']!, name: device['name']!));
+    final newDevice = Device(
+      id: device['id']!,
+      name: device['name']!,
+      pairingToken: device['pairingToken'], // ← THIS WAS MISSING!
+    );
+    _handleDeviceAdded(newDevice);
   }
 
   Future<void> _removeDevice(String deviceIdToRemove) async {
@@ -272,12 +283,21 @@ class _HomePageState extends State<HomePage> {
     if (ipAddress != null) {
       print('Sending forget command to device at IP: $ipAddress');
       try {
-        await http.post(
-          Uri.parse('http://$ipAddress/api/forget-wifi'),
-          headers: {'Content-Type': 'application/json'},
-        );
+        final response = await http
+            .post(
+              Uri.parse('http://$ipAddress/api/forget-wifi'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({"forget": true}),
+            )
+            .timeout(const Duration(seconds: 8));
+
+        if (response.statusCode == 200) {
+          print("Device forget command sent successfully");
+        } else {
+          print("Forget failed: ${response.statusCode} ${response.body}");
+        }
       } catch (e) {
-        print('Network error sending forget command: $e');
+        print('Failed to send forget command: $e');
       }
     }
 

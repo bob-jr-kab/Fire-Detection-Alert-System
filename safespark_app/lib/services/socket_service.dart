@@ -60,15 +60,20 @@ class SensorData {
 class Device {
   final String id;
   final String name;
+  final String? pairingToken;
 
-  Device({required this.id, required this.name});
+  Device({required this.id, required this.name, this.pairingToken});
 
   factory Device.fromJson(Map<String, dynamic> json) {
-    return Device(id: json['id'] as String, name: json['name'] as String);
+    return Device(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      pairingToken: json['pairingToken'] as String?,
+    );
   }
 
   Map<String, dynamic> toJson() {
-    return {'id': id, 'name': name};
+    return {'id': id, 'name': name, 'pairingToken': pairingToken};
   }
 }
 
