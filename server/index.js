@@ -17,7 +17,7 @@ const io = initSocket(server);
 app.use(
   cors({
     origin: [
-      "https://rhkbbkgq-3000.euw.devtunnels.ms/", // ✅ Allow full ngrok domain (HTTPS)
+      "https://rhkbbkgq-3000.euw.devtunnels.ms", // ✅ Allow full ngrok domain (HTTPS)
       /\.ngrok\.io$/, // wildcard for fallback
       /localhost(:\d+)?$/,
       /192\.168\.\d+\.\d+(:\d+)?$/, // local IPs
@@ -37,8 +37,19 @@ app.set("socketio", io);
 app.post("/api/sensor-data", (req, res) => {
   const sensorData = req.body;
   console.log("Received sensor data from ESP:", sensorData);
-  const socketio = req.app.get("socketio");
-  socketio.emit("sensor-data", sensorData);
+
+  // Get the io instance and broadcast the data WITH the pairingToken
+  const io = req.app.get("socketio");
+  io.emit("sensor-data", {
+    device_id: sensorData.device_id,
+    temperature: sensorData.temperature,
+    humidity: sensorData.humidity,
+    smokeLevel: sensorData.smokeLevel,
+    flameDetected: sensorData.flameDetected,
+    ipAddress: sensorData.ipAddress,
+    pairingToken: sensorData.pairingToken, // ✅ CRITICAL: Forward this token
+  });
+
   res.status(200).send("Data received successfully");
 });
 // ✅ Routes

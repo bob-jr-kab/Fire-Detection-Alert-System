@@ -6,13 +6,11 @@ const socket = require("../config/socket");
 // 🔌 ESP32 sends real-time sensor data here
 router.post("/sensor-data", (req, res) => {
   const sensorData = req.body;
-  console.log("Received sensor data from ESP:", sensorData);
-
-  // Get the io instance and broadcast the data
+  // IMPORTANT: The sensorData object MUST contain 'pairingToken'
+  // as sent by the ESP32 hardware.
   const socketio = req.app.get("socketio");
   socketio.emit("sensor-data", sensorData);
-
-  res.status(200).send("Data received successfully");
+  res.status(200).send("Data received");
 });
 
 // ✅ Mobile app confirms a fire alert → this route stores it

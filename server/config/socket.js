@@ -1,23 +1,25 @@
-let io = null; // Store the io instance
+let io = null;
 
 const initSocket = (server) => {
   io = require("socket.io")(server, {
     cors: {
-      origin: "*",
+      origin: "*", // ✅ allow dev tunnels + flutter
       methods: ["GET", "POST"],
     },
+    transports: ["polling", "websocket"], // ✅ REQUIRED
   });
 
   io.on("connection", (socket) => {
-    console.log("New client connected:", socket.id);
+    console.log("🟢 Socket.IO client connected:", socket.id);
+
+    socket.emit("connected", { status: "ok" });
+
+    socket.on("disconnect", () => {
+      console.log("🔴 Socket.IO client disconnected:", socket.id);
+    });
   });
 
   return io;
 };
 
-const getIO = () => {
-  if (!io) throw new Error("Socket.io not initialized!");
-  return io;
-};
-
-module.exports = { initSocket, getIO };
+module.exports = { initSocket };

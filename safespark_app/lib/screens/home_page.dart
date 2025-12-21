@@ -29,8 +29,7 @@ class _HomePageState extends State<HomePage> {
   Alert? _currentCriticalAlert; // Store the current critical alert
   SensorData? get current =>
       _selectedDeviceId != null ? _allSensorData[_selectedDeviceId] : null;
-  double _alertScale = 1.0;
-  bool _isSendingAlert = false;
+
   // Convenience alias and selector for external use in this state
   SensorData? get currentSensorData => current;
 
@@ -43,76 +42,21 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _onAlertTapDown(TapDownDetails details) {
-    setState(() => _alertScale = 0.95);
-  }
-
-  void _onAlertTapUp(TapUpDetails details) {
-    setState(() => _alertScale = 1.0);
-  }
-
-  void _onAlertTapCancel() {
-    setState(() => _alertScale = 1.0);
-  }
-
-  Future<void> _confirmAndSendAlert() async {
-    // restore scale
-    setState(() => _alertScale = 1.0);
-
-    // confirm dialog
-    final confirmed =
-        await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Confirm Alert'),
-            content: const Text(
-              'Are you sure you want to send an alert? This will notify emergency services.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Send'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    if (!confirmed) return;
-
-    setState(() => _isSendingAlert = true);
-    // quick pulse animation
-    setState(() => _alertScale = 1.08);
-    await Future.delayed(const Duration(milliseconds: 150));
-    setState(() => _alertScale = 1.0);
-
-    try {
-      _handleAlert();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Alert sent')));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to send alert: $e')));
-    } finally {
-      setState(() => _isSendingAlert = false);
-    }
-  }
-
   @override
   void initState() {
     super.initState();
+
     NotificationService.initialize(
       context,
       onNotificationTap: _handleNotificationTap,
     );
-    _loadDevicesAndSelection();
-    _setupSocket();
+
+    _initApp(); // ✅ new
+  }
+
+  Future<void> _initApp() async {
+    await _loadDevicesAndSelection(); // WAIT for devices
+    _setupSocket(); // THEN connect socket
   }
 
   void _handleNotificationTap(Alert alert) {
@@ -176,11 +120,14 @@ class _HomePageState extends State<HomePage> {
   // --- WEBSOCKET & DATA HANDLING ---
   void _setupSocket() {
     socketService = SocketService();
+
     socketService.onConnected = () => print("WebSocket Connected");
     socketService.onDisconnected = () => print("WebSocket Disconnected");
 
     socketService.onData = (data) {
       if (!mounted) return;
+
+      print("Received sensor data: $data");
 
       final String deviceId = data['device_id'] as String;
       final String? incomingToken = data['pairingToken'] as String?;
@@ -229,7 +176,7 @@ class _HomePageState extends State<HomePage> {
             : "Smoke Detected";
 
         NotificationService.showFireNotification(
-          title: title,
+          title: "🔥 Fire Detected",
           body: "Immediate action required from ${incoming.deviceName}!",
           alert: alert,
         );
@@ -276,12 +223,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _removeDevice(String deviceIdToRemove) async {
-    // ... (logic remains the same)
+    // Get device data before removal for the forget command
     final deviceData = _allSensorData[deviceIdToRemove];
     final ipAddress = deviceData?.ipAddress;
 
-    if (ipAddress != null) {
-      print('Sending forget command to device at IP: $ipAddress');
+    // 1. Optionally send forget command (handle errors gracefully)
+    if (ipAddress != null && ipAddress.isNotEmpty) {
+      print('Attempting to send forget command to device at IP: $ipAddress');
       try {
         final response = await http
             .post(
@@ -289,30 +237,33 @@ class _HomePageState extends State<HomePage> {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({"forget": true}),
             )
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 5));
 
-        if (response.statusCode == 200) {
-          print("Device forget command sent successfully");
-        } else {
-          print("Forget failed: ${response.statusCode} ${response.body}");
-        }
+        print(
+          "Forget command response: ${response.statusCode} ${response.body}",
+        );
       } catch (e) {
-        print('Failed to send forget command: $e');
+        print('Forget command failed (this is OK if device is offline): $e');
       }
     }
 
+    // 2. Update local state regardless of network command success
     final updatedDevices = _devices
         .where((d) => d.id != deviceIdToRemove)
         .toList();
-    await _saveDevices(updatedDevices);
-    _allSensorData.remove(deviceIdToRemove);
 
+    await _saveDevices(updatedDevices); // Persist to SharedPreferences
+    _allSensorData.remove(deviceIdToRemove); // Clear sensor data
+
+    // 3. Update selected device
     if (_selectedDeviceId == deviceIdToRemove) {
       final newSelectedId = updatedDevices.isNotEmpty
           ? updatedDevices.first.id
           : null;
       await _saveSelectedDeviceId(newSelectedId);
     }
+
+    setState(() {}); // Trigger UI rebuild
   }
 
   // --- ALERT BUTTON LOGIC (unchanged) ---
@@ -371,7 +322,7 @@ class _HomePageState extends State<HomePage> {
               height: 40,
               width: 40,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
+                color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.settings, color: Colors.white, size: 22),
@@ -441,7 +392,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _deviceDropdown() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
@@ -755,7 +706,7 @@ class _HomePageState extends State<HomePage> {
             infoText:
                 "This sensor looks for the infrared signature of a direct flame.",
             highlight: current!.flameDetected,
-            grey: false,
+            grey: !current!.flameDetected,
           ),
         ] else
           // Show a placeholder if no sensor data is received yet
@@ -770,37 +721,24 @@ class _HomePageState extends State<HomePage> {
           ),
         const Spacer(),
         Center(
-          child: AnimatedScale(
-            scale: _alertScale,
-            duration: const Duration(milliseconds: 120),
-            child: GestureDetector(
-              onTapDown: _isSendingAlert ? null : _onAlertTapDown,
-              onTapUp: _isSendingAlert ? null : _onAlertTapUp,
-              onTapCancel: _isSendingAlert ? null : _onAlertTapCancel,
-              onTap: _isSendingAlert ? null : _confirmAndSendAlert,
-              child: Container(
-                height: 95,
-                width: 95,
-                decoration: BoxDecoration(
-                  color: _isSendingAlert
-                      ? Colors.red.shade200
-                      : Colors.red.shade400,
-                  shape: BoxShape.circle,
+          child: GestureDetector(
+            onTap: _handleAlert,
+            child: Container(
+              height: 95,
+              width: 95,
+              decoration: BoxDecoration(
+                color: Colors.red.shade400,
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Text(
+                  "Alert",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                child: _isSendingAlert
-                    ? const Center(
-                        child: CircularProgressIndicator(color: Colors.white),
-                      )
-                    : const Center(
-                        child: Text(
-                          "Alert",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
               ),
             ),
           ),

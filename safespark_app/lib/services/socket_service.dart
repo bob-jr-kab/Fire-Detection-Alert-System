@@ -87,13 +87,17 @@ class SocketService {
   void Function(Map<String, dynamic>)? onData;
 
   SocketService() {
-    // 1. Configure the Socket.IO client
+    // Add debug logging to verify URL
+    print('🔗 Connecting to Socket.IO at: $_socketUrl');
+
     socket = IO.io(
       _socketUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket']) // Use only WebSockets
-          .disableAutoConnect() // Don't connect yet
-          .setExtraHeaders({'ngrok-skip-browser-warning': 'true'}) // For ngrok
+          .setTransports(['websocket', 'polling'])
+          .enableAutoConnect()
+          .setTimeout(20000) // 20 seconds timeout
+          .setExtraHeaders({'ngrok-skip-browser-warning': 'true'})
+          .disableAutoConnect() // <-- ADD THIS temporarily for debugging
           .build(),
     );
   }
